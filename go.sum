@@ -64,6 +64,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/ibnHatab/acasa v0.0.0-20261124110834-fdc95fd8bd1c h1:0/VmVVeMuYXJ0bS8mgHNsclUBSYmsZrWZP/e2G3eIX4=
 github.com/ibnHatab/acasa v0.0.0-20261124110834-fdc95fd8bd1c/go.mod h1:RZ8PabE9v/ANF4NBSudiVOYbpm7/bdYaURZ/TiouaX0=
+github.com/ibnHatab/acasa v0.0.0-20261124222510-b6b9a6b39e8b h1:bjXel0RUWc62Xi8HTzyVB+pabPWNhopFyBtt1ZHEpdE=
+github.com/ibnHatab/acasa v0.0.0-20261124222510-b6b9a6b39e8b/go.mod h1:WPFEE8+HH+wfiUrRKh4FzenOYTHhozXWmQ+fkZK7z2M=
 github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70 h1:K7ycj9HjlZAQ1Zu5wGwCx+/LdTQfVgR85F0TABkLZDY=
 github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70/go.mod h1:pfwj3KBB0k6Y+PdsADIlEb8GryN9uZCrf6QF7ljRP8E=
 github.com/ibnHatab/fsttm-live v0.0.0-20261124145700-c7f5cb8b993d h1:D9oYhz6dpm/c4jSfJ2ixTK4dkxnXRI5UnlEp/g3q23o=
