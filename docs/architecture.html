@@ -409,11 +409,13 @@ func (d *Dialogue) SetPrefs(Prefs) error</pre>
 </ul>
 </div>
 <div class="decide">
-<h2>To decide</h2>
-<ol>
-<li>metis-agent's public package and the Go director tick: do they go on the <code>home-cgo</code> branch or on main, and who reviews them?</li>
-<li><code>TransformContext</code> (read-only) and <code>Steer</code> bend "no hooks" for the projection only. Is that the reading you meant?</li>
-</ol>
+<h2>Also decided</h2>
+<ul style="margin:0">
+<li>The license is the Anti-Capitalist Software License v1.4.</li>
+<li>metis-agent's public embedding package and its Go director tick go on its <code>home-cgo</code> branch.</li>
+<li>pi's <code>Steer</code>, <code>FollowUp</code> and read-only <code>TransformContext</code> carry state and messages. No hook holds policy: the rules decide.</li>
+</ul>
+<p style="margin:10px 0 0;font-size:15px">Nothing is left to decide for milestone 1.</p>
 </div>
 </div>
 <p class="meta" style="margin-top:28px">Facts this rests on, read on 24 November 2026:</p>

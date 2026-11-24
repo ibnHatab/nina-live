@@ -346,7 +346,7 @@ deployment.
     taking `now`.
   - Three map-order loops in `home.go` are to fix.
 
-## 9. Decided, and to decide
+## 9. Decided
 
 Decided (2026-11-24):
 
@@ -355,10 +355,11 @@ Decided (2026-11-24):
   module's `go` line.
 - **The conversations are kept, all of them,** for mining (F7): what people ask that nothing
   handles, and where the world surprised, are the input for new tools and new rules.
+- **The license** is the Anti-Capitalist Software License v1.4 (`LICENSE`).
+- **metis-agent's changes,** the public embedding package and the Go director tick, go on its
+  `home-cgo` branch.
+- **pi's mechanisms** are as in 3.3. `Steer`, `FollowUp` and a read-only `TransformContext`
+  carry state and messages. No hook holds policy, so `BeforeToolCall` and `AfterToolCall` are
+  not used; the rules decide.
 
-To decide:
-
-1. **metis-agent's public package and the Go director tick** are changes to metis-lang-dev's
-   repositories. Do they go on the `home-cgo` branch or on main, and who reviews them?
-2. **Using `TransformContext` (read-only) and `Steer`:** this bends "no hooks" for the
-   projection only (3.3). Is that the reading you meant?
+Nothing is left to decide for milestone 1.

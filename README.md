@@ -15,3 +15,5 @@ Nina as a personal agent: speech is one way to reach her, not her core.
 
 Status: design. Read [ARCHITECTURE.md](ARCHITECTURE.md): the roles, the event log and its
 determinism contract, Metis and pi, the dataflows, the milestones.
+
+License: [Anti-Capitalist Software License v1.4](LICENSE).
