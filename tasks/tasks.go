@@ -50,9 +50,16 @@ type Tool struct {
 	Domain            string // the package it reaches (its conclusions are steered into the task)
 }
 
+// Fallback is another model a one-shot Ask turns to when the ones before it fail (a provider's
+// overload: Google's "high demand", the user's quota).
+type Fallback struct {
+	Provider, Model, KeyFile string
+}
+
 type Config struct {
-	Provider, Model string    // google, gemini-3.5-flash
-	ModelValue      *ai.Model // instead of Provider/Model (a test's faux model)
+	Provider, Model string     // google, gemini-3.5-flash
+	Fallbacks       []Fallback // Ask's: tried in order after the model, each once, within AskTry
+	ModelValue      *ai.Model  // instead of Provider/Model (a test's faux model)
 	KeyFile         string
 	System          string
 	Tools           []Tool
@@ -61,7 +68,8 @@ type Config struct {
 	Note            func(level, text string) // the result to the voice
 	Now             func() float64
 	Mech            Mechanisms
-	MaxTurns        int // a run's turns before it is stopped (0: 12)
+	MaxTurns        int           // a run's turns before it is stopped (0: 12)
+	AskTry          time.Duration // Ask: one model's time before the next is tried (0: 25 s; the last gets what is left)
 	Timeout         time.Duration
 }
 
@@ -70,6 +78,7 @@ type Runner struct {
 	cfg   Config
 	key   string
 	model *ai.Model
+	alts  []alt // Ask's fallbacks
 	mu    sync.Mutex
 	n     int
 	live  map[string]*Task
@@ -111,7 +120,27 @@ func New(c Config) (*Runner, error) {
 	if c.Now == nil {
 		c.Now = func() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 	}
-	return &Runner{cfg: c, key: key, model: m, live: map[string]*Task{}}, nil
+	r := &Runner{cfg: c, key: key, model: m, live: map[string]*Task{}}
+	for _, f := range c.Fallbacks {
+		fm := ai.GetModel(f.Provider, f.Model)
+		if fm == nil {
+			return nil, fmt.Errorf("tasks: no fallback model %s/%s in pi's catalog", f.Provider, f.Model)
+		}
+		fk, err := Key(fm.Provider, f.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("tasks: fallback %s/%s: %w", f.Provider, f.Model, err)
+		}
+		r.alts = append(r.alts, alt{fm, fk})
+	}
+	if r.cfg.AskTry <= 0 {
+		r.cfg.AskTry = 25 * time.Second
+	}
+	return r, nil
+}
+
+type alt struct {
+	model *ai.Model
+	key   string
 }
 
 func (r *Runner) log(kind, key string, data any) {
@@ -436,10 +465,34 @@ func Key(provider, file string) (string, error) {
 // Ask is one answer of the model, no tools: a system prompt and a prompt (the explainer's
 // narration of a trace). Logged (stream task, kind ask).
 func (r *Runner) Ask(ctx context.Context, system, prompt string) (string, error) {
+	chain := append([]alt{{r.model, r.key}}, r.alts...)
+	var out string
+	var err error
+	for i, m := range chain {
+		last := i == len(chain)-1
+		c, cancel := ctx, context.CancelFunc(func() {})
+		if !last { // one model's turn: a short one, one retry at most; the last gets what is left
+			c, cancel = context.WithTimeout(ctx, r.cfg.AskTry)
+		}
+		out, err = r.ask1(c, m, system, prompt, map[bool]int{true: 4, false: 1}[last])
+		cancel()
+		f := map[string]any{"chars": len(prompt), "answer": out, "model": string(m.model.Provider) + "/" + m.model.ID}
+		if err != nil {
+			f["error"] = err.Error()
+		}
+		r.log("ask", "", f)
+		if err == nil && out != "" || ctx.Err() != nil {
+			break
+		}
+	}
+	return out, err
+}
+
+func (r *Runner) ask1(ctx context.Context, m alt, system, prompt string, retries int) (string, error) {
 	a := agent.NewAgent(agent.AgentOptions{
-		InitialState: &agent.AgentState{SystemPrompt: system, Model: r.model},
-		GetApiKey:    func(string) string { return r.key },
-		MaxRetries:   4,
+		InitialState: &agent.AgentState{SystemPrompt: system, Model: m.model},
+		GetApiKey:    func(string) string { return m.key },
+		MaxRetries:   retries,
 	})
 	err := a.Prompt(ctx, prompt)
 	st := a.State()
@@ -455,10 +508,8 @@ func (r *Runner) Ask(ctx context.Context, system, prompt string) (string, error)
 			}
 		}
 	}
-	f := map[string]any{"chars": len(prompt), "answer": out}
-	if err != nil {
-		f["error"] = err.Error()
+	if err == nil && out == "" {
+		err = fmt.Errorf("an empty answer")
 	}
-	r.log("ask", "", f)
 	return out, err
 }

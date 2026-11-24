@@ -71,6 +71,11 @@ type Config struct {
 		Transform *bool         `yaml:"transform"`
 		Steer     *bool         `yaml:"steer"`
 		FollowUp  *bool         `yaml:"follow_up"`
+		Fallback  []struct {
+			Provider string `yaml:"provider"`
+			Model    string `yaml:"model"`
+			Key      string `yaml:"key"`
+		} `yaml:"fallback"` // the one-shot asks' (narration) next models when the first fails
 	} `yaml:"tasks"`
 }
 
@@ -182,7 +187,11 @@ func main() {
 		if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 			charter = string(b) + "\n\n# The task runner\n\n" + charter
 		}
-		cc.Tasks = &tasks.Config{Provider: c.Tasks.Provider, Model: c.Tasks.Model, KeyFile: c.Tasks.Key, System: charter,
+		var fbs []tasks.Fallback
+		for _, f := range c.Tasks.Fallback {
+			fbs = append(fbs, tasks.Fallback{Provider: f.Provider, Model: f.Model, KeyFile: expand(f.Key)})
+		}
+		cc.Tasks = &tasks.Config{Provider: c.Tasks.Provider, Model: c.Tasks.Model, KeyFile: c.Tasks.Key, System: charter, Fallbacks: fbs,
 			MaxTurns: c.Tasks.MaxTurns, Timeout: c.Tasks.Timeout,
 			Mech: tasks.Mechanisms{Transform: on(c.Tasks.Transform), Steer: on(c.Tasks.Steer), FollowUp: on(c.Tasks.FollowUp)}}
 	}

@@ -420,7 +420,13 @@ func (k *Core) temperament() {
 		l.Log("persona", map[string]any{"artwork": st.Artwork, "mood": st.Mood, "since": st.Since.Format(time.RFC3339),
 			"moon": st.Moon, "override": st.Override})
 	}
-	if st.Mood == prev && !k.moodPublishDue(now) {
+	// to Home Assistant at every evaluation, unchanged or not: a state set through its API is gone
+	// after a restart until it is set again (her dashboard's card would guess by the date meanwhile)
+	if k.Cfg.Publish != nil {
+		go k.Cfg.Publish(st.Artwork, map[string]any{"friendly_name": "Nina's persona", "mood": st.Mood, "since": st.Since.Format(time.RFC3339),
+			"moon": st.Moon, "activity": act, "temperament": st.Temperament, "icon": "mdi:drama-masks"})
+	}
+	if st.Mood == prev {
 		return
 	}
 	if v := k.Voice(); v != nil {
@@ -430,16 +436,6 @@ func (k *Core) temperament() {
 		k.Log.Append(k.Cfg.Now(), "persona", st.Mood, st.Artwork, "", map[string]any{"from": prev, "activity": act,
 			"temperament": st.Temperament, "moon": st.Moon, "override": st.Override}, 1)
 	}
-	if k.Cfg.Publish != nil {
-		go k.Cfg.Publish(st.Artwork, map[string]any{"friendly_name": "Nina's persona", "mood": st.Mood, "since": st.Since.Format(time.RFC3339),
-			"moon": st.Moon, "activity": act, "temperament": st.Temperament, "icon": "mdi:drama-masks"})
-	}
-}
-
-// moodPublishDue: the persona is put out again every hour (Home Assistant forgets a state set
-// through its API when it restarts).
-func (k *Core) moodPublishDue(now time.Time) bool {
-	return now.Minute() < int(k.mood.C.Every/time.Minute)
 }
 
 // Mood is Nina's temperament now (the dashboard's and the tools' view).
