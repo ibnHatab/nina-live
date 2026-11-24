@@ -7,6 +7,7 @@ require (
 	github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70
 	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124065417-27b6aea3eccd
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261124051101-a735279b0db7
+	github.com/sky-valley/pi v1.6.32
 	google.golang.org/genai v1.79.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.63.0
@@ -39,7 +40,7 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
