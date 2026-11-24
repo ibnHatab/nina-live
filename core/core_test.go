@@ -370,7 +370,7 @@ func waitHeard(t *testing.T, v *voice, sub string) {
 func homeCall(t *testing.T, k *Core, tool string, args map[string]any) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o := k.Home.Call(ctx, tool, args)
+	o := k.Call(ctx, tool, args)
 	if o.Status != "done" {
 		t.Fatalf("%s %v: %s %s", tool, args, o.Status, o.Text)
 	}
@@ -581,4 +581,54 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 	r2 := newRig(t, tasks.All)
 	homeCall(t, r2.k, "home_music", map[string]any{"intent": "SOMETHING"})
 	waitHeard(t, r2.v, "Something you like at this time of day:")
+}
+
+// TestAgainAndTheUsual: "again" repeats the most recent request, the person's words narrowing it
+// to a domain; "the usual" is the most frequent at this time of day; a calendar entry is never
+// repeated; with no history, the rules say so.
+func TestAgainAndTheUsual(t *testing.T) {
+	var mu sync.Mutex
+	var played []string
+	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if service == "play_media" {
+			played = append(played, data["media_content_id"].(string))
+		}
+		return nil
+	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
+	}}
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(context.Context, string, string, map[string]any) error { return nil }}
+	defer func() { rigMusic, rigAgenda = nil, nil }()
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_habits", map[string]any{"intent": "USUAL"})
+	waitHeard(t, r.v, "I don't know what you mean yet")
+	for _, g := range []string{"classical", "jazz", "jazz", "rock"} { // jazz the most often, rock the last
+		homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": g, "words": g})
+		time.Sleep(200 * time.Millisecond)
+	}
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Call the bank"})
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "STOP"})
+	lastPlayed := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return played[len(played)-1]
+	}
+	// "the usual": the most frequent at this hour
+	homeCall(t, r.k, "home_habits", map[string]any{"intent": "USUAL", "words": "music"})
+	waitHeard(t, r.v, "As before: music: play jazz")
+	for i := 0; i < 30 && lastPlayed() != "http://radio/jazz"; i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if lastPlayed() != "http://radio/jazz" {
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error { t.Logf("%s %s %s", e.Stream, e.Kind, e.Data); return nil }, "habits")
+		t.Fatalf("the usual played %s", lastPlayed())
+	}
+	// "again", narrowed by the words
+	homeCall(t, r.k, "home_habits", map[string]any{"intent": "AGAIN", "words": "rock"})
+	waitHeard(t, r.v, "As before: music: play rock")
+	// a calendar entry is never repeated
+	homeCall(t, r.k, "home_habits", map[string]any{"intent": "AGAIN", "words": "the bank"})
+	waitHeard(t, r.v, "I won't repeat that")
 }

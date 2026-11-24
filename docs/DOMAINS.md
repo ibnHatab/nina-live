@@ -341,10 +341,10 @@ domain, as the home's commands do: the domain's rules decide, and its host calls
 |---|---|---|---|
 | home, comfort | `light`, `fan`, `switch`, `climate`, `sensor` (Prana, later Zigbee, Matter) | the two Prana units | running (the five packages) |
 | weather | `weather` (Met.no now; Open-Meteo) | `weather.home` (Met.no): now and three days, in the context | the lines; rules to come (weather + calendar) |
-| tasks, shopping | `todo` (Shopping List, Local To-do, Google Tasks) | Google Tasks `todo.my_tasks`, `todo.shopping_list`, the local test `todo.nina_local` | running: the lines and `lists`; the `agenda` domain adds Nina's to-dos to your tasks |
+| tasks | `todo` (Shopping List, Local To-do, Google Tasks) | Google Tasks `todo.my_tasks`, `todo.shopping_list`, the local test `todo.nina_local` | running: the lines and `lists`; the `agenda` domain adds Nina's to-dos to your tasks |
 | calendar, reminders | `calendar` (Google Calendar, Local Calendar) | Google: your calendar, Birthdays, Holidays, and Nina's own `calendar.nina`; the local test `calendar.nina_local` | running: the lines and `calendar`; the `agenda` domain writes Nina's events on her own calendar |
 | time | `timer`, `schedule` | none in use | Nina's own `timers` stay (her scheduler must not depend on Home Assistant) |
-| media | `media_player` (Music Assistant, Radio Browser) | Radio Browser installed; no player | the lines; the media domain later |
+| media | `media_player` (MPD, Radio Browser; Music Assistant later) | MPD (`media_player.music_player_daemon`, a user service), the Echo Dot, Radio Browser | running: the `music` domain (taste per time of day, ducking, scenes) |
 | people | `person`, `device_tracker` | `person.nina` | the lines |
 | news | Feedreader | none | later |
 | cooking, inventory | Mealie, Grocy (servers of their own) | none | later |
@@ -376,6 +376,24 @@ local test pair; the person's own calendar is read and never written. Its host (
 `calendar.create_event` and `todo.add_item` with the payload (summary, start, minutes, due), marks
 the item "(set by Nina)" and records it in the log (stream `agenda`); a write Home Assistant refuses
 is said. The voice's card is `home_agenda`.
+
+### Music and habits: domains that adapt to the person (2026-11-24)
+
+The user: "think out of the box: rules that capture the person's intent and preferences; fuzzy
+matching on the last use is just another domain, a cross-domain skill".
+
+- **`music`** (radio on MPD through Home Assistant; host `music/`). Taste is a multiset of linear
+  tokens: a station kept on for 10 minutes leaves `liked(G, P)` for the genre and the time of day; a
+  station changed within 90 s takes one back. The host reads the multiplicity and asserts the hour's
+  favourite and runner-up, or a genre never kept at this hour to explore: "play something" is the
+  favourite, "something else" the runner-up or something new, "again" the last genre of this hour.
+  What the card cannot name is the person's own words: a fuzzy search, and once kept, those words
+  find that station again. The floor machine ducks the music while anyone talks; a scene's wish
+  fades it at night and stops it when everyone is out. The taste is the log's: it outlives restarts.
+- **`habits`** ("again", "the usual", in any domain; host `habits/`). Every card call the rules
+  answer done is kept (stream `call`). "Again" is the most recent, "the usual" the most frequent at
+  this time of day, the person's words narrowing either (a fuzzy match over the calls' words). The
+  rules decide what may be repeated: home commands, scenes, music, timers; never a calendar entry.
 
 ### What stays native
 

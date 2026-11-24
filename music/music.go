@@ -378,11 +378,14 @@ func (h *Host) tune(g, words string) {
 		}
 		sts, err := search(ctx, tag, q)
 		h.mu.Lock()
-		for _, s := range sts {
+		for _, s := range sts { // a skipped station is demoted, never banned: the best of them when all were
 			if !h.bad[s.URL] {
 				st, ok = s, true
 				break
 			}
+		}
+		if !ok && len(sts) > 0 {
+			st, ok = sts[0], true
 		}
 		h.mu.Unlock()
 		if err != nil || !ok {

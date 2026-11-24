@@ -23,7 +23,10 @@ func TestWritesReachHomeAssistant(t *testing.T) {
 	}
 	var saved []Write
 	h := &Host{Entities: Default, Save: func(w Write) { saved = append(saved, w) },
-		Call: func(ctx context.Context, d, s string, data map[string]any) error { _, err := c.Service(ctx, d, s, data, false); return err }}
+		Call: func(ctx context.Context, d, s string, data map[string]any) error {
+			_, err := c.Service(ctx, d, s, data, false)
+			return err
+		}}
 	start := time.Now().Add(2 * time.Hour).Truncate(time.Minute)
 	h.write("event", "nina_local", map[string]any{"summary": "Nina's write check", "start": start.Format("2006-01-02T15:04"), "minutes": 15.0})
 	h.write("todo", "nina_todo", map[string]any{"summary": "Nina's write check"})
@@ -39,7 +42,9 @@ func TestWritesReachHomeAssistant(t *testing.T) {
 		t.Fatalf("the event: %s %v", r["calendar.nina_local"], err)
 	}
 	r, err = c.Service(ctx, "todo", "get_items", map[string]any{"entity_id": "todo.nina_local"}, true)
-	var x struct{ Items []struct{ Summary, Description string } }
+	var x struct {
+		Items []struct{ Summary, Description string }
+	}
 	json.Unmarshal(r["todo.nina_local"], &x)
 	found := false
 	for _, it := range x.Items {

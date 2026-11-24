@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/habits"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/port"
@@ -69,6 +70,7 @@ type Core struct {
 	Timers *timers.Host
 	Agenda *agenda.Host
 	Music  *music.Host
+	Habits *habits.Host
 	Report world.Report
 
 	mu    sync.Mutex
@@ -153,6 +155,30 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		hosts["music"] = metishome.HostSpec{New: func() metishome.Host { return fresh }, Outcomes: music.Outcomes}
 		if !slices.Contains(c.Packages, "music") {
 			c.Packages = append(slices.Clone(c.Packages), "music")
+		}
+	}
+	if c.Composed {
+		var past []habits.Call
+		c.Log.Read(ctx, 0, func(e nlog.Event) error {
+			var hc habits.Call
+			if json.Unmarshal(e.Data, &hc) == nil {
+				past = append(past, hc)
+			}
+			return nil
+		}, "call")
+		hb := habits.New(past)
+		hb.Replay = func(ctx context.Context, tool string, args map[string]any) (string, string) {
+			o := k.Home.Call(ctx, tool, args)
+			k.Log.Append(k.Cfg.Now(), "habits", "replayed", tool, "", map[string]any{"args": args, "status": o.Status, "text": o.Text}, 1)
+			return o.Status, o.Text
+		}
+		k.Habits = hb
+		if hosts == nil {
+			hosts = map[string]metishome.HostSpec{}
+		}
+		hosts["habits"] = metishome.HostSpec{New: func() metishome.Host { return hb }, Outcomes: habits.Outcomes}
+		if !slices.Contains(c.Packages, "habits") {
+			c.Packages = append(slices.Clone(c.Packages), "habits")
 		}
 	}
 	if hosts != nil {
@@ -353,6 +379,20 @@ func (k *Core) WorldLines() []string {
 	return out
 }
 
+// Call is a card call (the voice's, a task's): the rules' outcome; one they answered done is the
+// person's habit, kept in the log (stream call) for "again" and "the usual".
+func (k *Core) Call(ctx context.Context, tool string, args map[string]any) metishome.Outcome {
+	o := k.Home.Call(ctx, tool, args)
+	if o.Status == "done" && tool != "home_habits" {
+		hc := habits.Call{Tool: tool, Args: args, At: k.Cfg.Now()}
+		k.Log.Append(hc.At, "call", strings.TrimPrefix(tool, "home_"), "", "", hc, 1)
+		if k.Habits != nil {
+			k.Habits.Add(hc)
+		}
+	}
+	return o
+}
+
 // HomeTools are the home's cards as a task's tools.
 func (k *Core) HomeTools() []tasks.Tool {
 	var out []tasks.Tool
@@ -363,7 +403,7 @@ func (k *Core) HomeTools() []tasks.Tool {
 			Call: func(ctx context.Context, args map[string]any) (string, string) {
 				c, cancel := context.WithTimeout(ctx, k.Cfg.CallTimeout)
 				defer cancel()
-				o := k.Home.Call(c, name, args)
+				o := k.Call(c, name, args)
 				return o.Status, o.Text
 			}})
 	}
