@@ -337,3 +337,10 @@ func (h *Host) Name(handle string) (string, bool) {
 	}
 	return "", false
 }
+
+// MoodNow is the home's mood as the light took it (sleep, wake, …; "" when none).
+func (h *Host) MoodNow() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.Mood
+}

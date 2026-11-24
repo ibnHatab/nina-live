@@ -592,3 +592,11 @@ func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
 	}
 	return out, err
 }
+
+// Busy says whether music is playing and whether someone is talking (the floor's), for Nina's
+// temperament (persona: what the home is doing).
+func (h *Host) Busy() (playing, talking bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cur != nil, h.talking
+}

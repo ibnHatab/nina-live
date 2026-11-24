@@ -164,7 +164,12 @@ func main() {
 	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 		persona = string(b)
 	}
-	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	publish := func(state string, attrs map[string]any) { // Nina's persona, for the dashboard (sensor.nina_persona)
+		if _, err := ha.Call("POST", "/api/states/sensor.nina_persona", map[string]any{"state": state, "attributes": attrs}); err != nil {
+			stdlog.Printf("[persona] %v", err)
+		}
+	}
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
 		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {

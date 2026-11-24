@@ -31,6 +31,7 @@ import (
 	"github.com/ibnHatab/nina-live/habits"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
+	"github.com/ibnHatab/nina-live/persona"
 	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/taste"
@@ -65,7 +66,10 @@ type Config struct {
 	Character       string            // the home's character (default Root/character.yaml): the taste's priors, loaded when it changes
 	Glow            *glow.Host        // the glow package's host (the bedroom light through Alexa); nil when Composed: one that reaches nothing
 	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
-	Now             func() float64
+	Temperament     string            // Nina's temperament (default Root/persona.yaml; "-": none): her mood, its prompt and persona
+	// Publish puts Nina's persona where the dashboard sees it (Home Assistant's sensor.nina_persona); nil: nowhere
+	Publish func(state string, attrs map[string]any)
+	Now     func() float64
 }
 
 type Core struct {
@@ -85,6 +89,10 @@ type Core struct {
 
 	lastSurprise float64
 	lastMinute   string
+	mood         *persona.Selector // Nina's temperament; nil without one
+	moodAt       time.Time
+	moodAct      string
+	moodState    persona.State
 	Character    *taste.Character // the home's character (its moods, its routines)
 	routineDay   map[string]string
 	Report       world.Report
@@ -241,6 +249,16 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	if err := k.loadCharacter(ctx); err != nil {
 		return nil, err
 	}
+	if tp := c.Temperament; tp != "-" {
+		if tp == "" {
+			tp = filepath.Join(c.Root, "persona.yaml")
+		}
+		pc, err := persona.Load(tp)
+		if err != nil {
+			return nil, fmt.Errorf("the temperament: %w", err)
+		}
+		k.mood = &persona.Selector{C: pc}
+	}
 	k.World.OnOut = func(e semhome.Event, out semhome.Out) {
 		for _, s := range out.Surprises {
 			k.surprise("world", map[string]any{"kind": s.Kind, "key": s.Key, "why": s.Why})
@@ -318,6 +336,75 @@ func (k *Core) clock() {
 		zone, _ := now.Zone()
 		v.Context("now", fmt.Sprintf("now: %s (%s, local time)", m, zone))
 	}
+}
+
+// activity is what the home is doing, for the temperament: its sleep or wake mood, someone
+// talking, music playing ("" for nothing in particular).
+func (k *Core) activity() string {
+	if k.Glow != nil {
+		if m := k.Glow.MoodNow(); m == "sleep" || m == "wake" {
+			return m
+		}
+	}
+	if k.Music != nil {
+		playing, talking := k.Music.Busy()
+		if talking {
+			return "talking"
+		}
+		if playing {
+			return "music"
+		}
+	}
+	return ""
+}
+
+// temperament evaluates Nina's mood every so often (and when what the home does changes): on a
+// new mood, her voice gets its prompt block (keyed "persona", between turns), the log a line and
+// the dashboard her persona. Deterministic: catalog/persona.yaml and the clock decide.
+func (k *Core) temperament() {
+	if k.mood == nil {
+		return
+	}
+	now := time.Unix(int64(k.Cfg.Now()), 0)
+	act := k.activity()
+	k.mu.Lock()
+	due := k.moodAt.IsZero() || now.Sub(k.moodAt) >= k.mood.C.Every || act != k.moodAct
+	if !due {
+		k.mu.Unlock()
+		return
+	}
+	k.moodAt, k.moodAct = now, act
+	prev := k.moodState.Mood
+	st := k.mood.Eval(now, act)
+	k.moodState = st
+	k.mu.Unlock()
+	if st.Mood == prev && !k.moodPublishDue(now) {
+		return
+	}
+	if v := k.Voice(); v != nil {
+		v.Context("persona", st.Prompt(k.mood.C))
+	}
+	if st.Mood != prev {
+		k.Log.Append(k.Cfg.Now(), "persona", st.Mood, st.Artwork, "", map[string]any{"from": prev, "activity": act,
+			"temperament": st.Temperament, "moon": st.Moon, "override": st.Override}, 1)
+	}
+	if k.Cfg.Publish != nil {
+		go k.Cfg.Publish(st.Artwork, map[string]any{"friendly_name": "Nina's persona", "mood": st.Mood, "since": st.Since.Format(time.RFC3339),
+			"moon": st.Moon, "activity": act, "temperament": st.Temperament, "icon": "mdi:drama-masks"})
+	}
+}
+
+// moodPublishDue: the persona is put out again every hour (Home Assistant forgets a state set
+// through its API when it restarts).
+func (k *Core) moodPublishDue(now time.Time) bool {
+	return now.Minute() < int(k.mood.C.Every/time.Minute)
+}
+
+// Mood is Nina's temperament now (the dashboard's and the tools' view).
+func (k *Core) Mood() persona.State {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.moodState
 }
 
 // routines turn the home to a mood at the character's times (bedtime: sleep; morning: wake), once a
@@ -460,6 +547,7 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 			k.Home.Beat()
 			k.routines()
 			k.clock()
+			k.temperament()
 		}
 	}
 }
