@@ -484,7 +484,7 @@ func (k *Core) routines() {
 // ExplainTool is "explain yourself" as a tool: the voice's and the tasks'.
 func (k *Core) ExplainTool() tasks.Tool {
 	return tasks.Tool{Name: "narrate", Domain: "explain",
-		Description: "Narrate yourself from the home's trace and its rules' comments (Metis's narrate). intent NARRATE: \"narrate\", \"explain what you did\" (focus recent: the last minutes in order), \"why did you do that?\" (focus last: only the last thing the home did and what led to it). intent SURPRISES: \"what surprised you?\": where the rules did not expect what happened, and where the loop is with it. Say the answer as it comes back, in full.",
+		Description: "Narrate yourself from the home's trace and its rules' comments (Metis's narrate). intent NARRATE: \"narrate\", \"explain what you did\" (focus recent: the last minutes in order), \"why did you do that?\" (focus last: only the last thing the home did and what led to it). intent SURPRISES: \"what surprised you?\": where the rules did not expect what happened, and where the loop is with it. The narration is spoken to the person by itself, word for word: when the result says so, say nothing.",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
 			"intent":   map[string]any{"type": "string", "enum": []string{"NARRATE", "SURPRISES"}},
 			"focus":    map[string]any{"type": "string", "enum": []string{"last", "recent"}, "description": "NARRATE: last for \"why did you do that?\", recent for the last minutes"},
@@ -518,6 +518,14 @@ func (k *Core) ExplainTool() tasks.Tool {
 			}
 			if err != nil {
 				return "error", err.Error()
+			}
+			// in full, as written (the user, 2026-11-24): a tool result the voice retells in its own
+			// shorter words, so the narration goes to it as a SAY message (prompts/voice.md: spoken
+			// exactly), right after this call; the result asks it to say nothing meanwhile
+			text = strings.TrimSpace(text)
+			if d, ok := k.Voice().(interface{ Do(string, string) error }); ok && text != "" {
+				go func() { time.Sleep(300 * time.Millisecond); d.Do("say", text) }()
+				return "done", "The narration is being spoken to the person word for word right after this. Say nothing now: no introduction, no summary."
 			}
 			return "done", text
 		}}
