@@ -384,11 +384,20 @@ func (k *Core) temperament() {
 		k.mu.Unlock()
 		return
 	}
+	first := k.moodAt.IsZero() && k.moodState.Mood == ""
 	k.moodAt, k.moodAct = now, act
+	if first { // once more in 30 s: the panel's pages may not have been listening yet
+		k.moodAt = now.Add(30*time.Second - k.mood.C.Every)
+	}
 	prev := k.moodState.Mood
 	st := k.mood.Eval(now, act)
 	k.moodState = st
 	k.mu.Unlock()
+	// to Nina's own screen, every evaluation (her panel keeps the last for a page loading now)
+	if l, ok := k.Voice().(interface{ Log(string, map[string]any) }); ok {
+		l.Log("persona", map[string]any{"artwork": st.Artwork, "mood": st.Mood, "since": st.Since.Format(time.RFC3339),
+			"moon": st.Moon, "override": st.Override})
+	}
 	if st.Mood == prev && !k.moodPublishDue(now) {
 		return
 	}
