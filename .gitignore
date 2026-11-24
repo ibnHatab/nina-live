@@ -2,3 +2,4 @@ bin/
 catalog/domains/*/build/
 catalog/domains/build/
 __pycache__/
+runs/

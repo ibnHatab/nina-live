@@ -320,7 +320,7 @@ deployment.
    - over the home's packages (scenes' fan-out as rules);
    - Live sees two cards;
    - `metisc --link` certifies.
-3. **System 2** (the user: when testing, experiment with `Steer`, `FollowUp` and
+3. **System 2** (started 2026-11-24: core/ with its integration tests on pi's faux provider; tasks/; delegate on the voice; the domains to come in docs/DOMAINS.md; the user: when testing, experiment with `Steer`, `FollowUp` and
    `TransformContext` to make the system flexible and natural; embedding pi is meant to reuse
    its tools and some public plugins):
    - pi for `delegate`, with tasks, results as notes;

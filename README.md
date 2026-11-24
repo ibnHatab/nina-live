@@ -16,6 +16,7 @@ Nina as a personal agent: speech is one way to reach her, not her core.
 Status: milestone 1 runs on Pascal (2026-11-24): `cmd/nina` holds her voice, the home's rules,
 the world rebuilt from the log and Home Assistant as her tool, in one service (acasa's
 `acasa-nina`). The Pi 4 build is still to do. pi comes in milestone 3. Read
+[docs/DOMAINS.md](docs/DOMAINS.md) for the domains (the catalog and its progress), and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the roles, the event log and its determinism contract,
 Metis and pi, the dataflows and the milestones.
 

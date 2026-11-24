@@ -1,0 +1,328 @@
+# Nina's domains: the catalog and its progress
+
+Nina's domains are the Metis packages of her one composition (`catalog/domains/`, the director over
+them). This page says which domains Nina should have, in what order, how each would be encoded, and
+where each one stands. It began as a draft on 2026-11-24 and is updated as domains land.
+
+The goal: everyday usefulness in the home (an Alexa replacement first), autonomous execution of
+open-ended goals (what OpenClaw does), and conversation worth having. Underneath sits Metis's
+persistent symbolic model of the person's world.
+
+The voice runs on a Flash model, so what to encode matters. Structured state, procedures,
+relationships and constraints held in Metis make up for a smaller model's limits. Then a larger
+model isn't needed for every turn.
+
+## Where things stand
+
+| | Domains | State |
+|---|---|---|
+| **Running** | `home` (lights, air, media, scenes, comfort), under the director | composed and on the tick since 2026-11-24 |
+| **Partly** | `memory` (episodic), `tasks` (System 2) | the log's FTS5 episodes, a `recall` tool for tasks; pi tasks from `delegate`. No Metis domain for either yet |
+| **Next** | `time` and `reminders`, `media` (music) | the first of release 0.1 below |
+| **Planned** | the rest of the catalog | |
+
+### Today's home in detail
+
+| Package | What it does | Real devices on Pascal |
+|---|---|---|
+| `lights` | on, off; a scene's sweep; off when a room is vacant | none in Home Assistant yet (the rules say so) |
+| `air` | the two Prana units: on, off, night, boost, normal, heater, winter; a scene's sweep; advice when it is cold outside | both units, through acasa's hass (one fan per call; boost capped at 10 min) |
+| `media` | the TV: on, off, volume, IR keys; a scene's sweep | the TV is not in Home Assistant yet |
+| `scenes` | home, night, away; away suggested when the home empties, the night's end at dawn | no devices: it puts out the scene's wishes, routed by the director |
+| `comfort` | a room's temperature and humidity, advice | no thermometers yet: "the lab has no thermometer yet" |
+| `director` | routes the scene's wishes (`scene_lights`, `scene_air`, `scene_media`) to their packages | none (its effects are the agent's verbs) |
+
+## The catalog
+
+The domains fall into three worlds and one cross-cutting group. "Metis gain" is how much the domain
+gains from symbolic encoding, compared with leaving its reasoning to Flash.
+
+### The physical world
+
+| Domain | What it covers | Metis gain | Priority | State |
+|---|---|---|---|---|
+| `home` | lights, ventilation, appliances, scenes | very high | P0 | running |
+| `media` | music, internet radio, podcasts, audiobooks, the TV | very high | P0 | the TV in `home/media`; music planned |
+| `weather` | forecasts, warnings, the outdoors | high | P0 | planned (`sun` and the Prana's outside sensor are in the world already) |
+| `comfort` | temperature, humidity, air quality, preferences | very high | P1 | in `home`, no sensors yet |
+| `inventory` | food, consumables, supplies | very high | P1 | planned |
+| `cooking` | recipes, ingredients, steps with their timers | very high | P1 | planned |
+| `shopping` | lists, products wanted | high | P1 | planned |
+| `energy` | consumption, tariffs, when to run things | very high | P2 | planned |
+| `maintenance` | filters, servicing, repairs | very high | P2 | planned (the Prana's filters first) |
+| `pets` | feeding, walks, appointments, supplies | very high | P2 | planned |
+
+### The personal world
+
+| Domain | What it covers | Metis gain | Priority | State |
+|---|---|---|---|---|
+| `time` | timers, alarms, countdowns | very high | P0 | planned (the scheduler's stream in the log) |
+| `reminders` | by time, and by condition ("when I go shopping") | very high | P0 | planned |
+| `calendar` | appointments, availability, travel time | very high | P0 | planned |
+| `tasks` | to-dos, priorities, dependencies | very high | P0 | System 2 runs; the to-do domain is planned |
+| `memory` | preferences, decisions, what was discussed | high | P0 | episodic: the log (FTS5), `recall`; semantic: planned |
+| `commitments` | promises, things left unfinished | very high | P1 | planned |
+| `briefing` | the morning and evening summary | high | P1 | planned |
+| `people` | contacts, relationships, birthdays | high | P1 | planned |
+| `communication` | email, messages: summaries, drafts | high | P1 | planned (reading first; sending asks the person) |
+| `notes` | ideas captured, found again | medium | P1 | planned |
+| `travel` | trips, transport, itineraries | very high | P2 | planned |
+| `finance` | bills, subscriptions, budgets | very high | P2 | planned |
+| `wellbeing` | activity, sleep, the reminders the person sets | high | P2 | planned |
+| `documents` | finding and filing documents | medium | P2 | planned |
+
+### The intellectual world
+
+Nina lives in the home and talks, so this world matters more for her than for a messaging agent.
+
+| Domain | What it covers | Metis gain | Priority | State |
+|---|---|---|---|---|
+| `conversation` | discussion, follow-ups in context | medium | P0 | the voice's own (Gemini Live); continuity from `memory` |
+| `news` | the stories the person follows and how they develop | high | P0 | planned |
+| `interests` | what the person cares about: what Nina should pay attention to | very high | P1 | planned |
+| `projects` | engineering projects: decisions, open questions, progress | very high | P1 | planned |
+| `knowledge` | facts, explanations | medium | P1 | the models' own; nothing to encode |
+| `research` | longer investigations, comparing sources | medium | P1 | System 2 (pi), with web tools to come |
+| `learning` | tutoring, progress, exercises | high | P1 | planned |
+| `books` | reading, recommendations, discussion | high | P1 | planned |
+| `language` | practice in another language (Nina is multilingual) | high | P2 | planned |
+| `games` | quizzes, puzzles, interactive stories | very high | P2 | planned |
+| `culture`, `debate` | films, music, history; structured argument | medium | P2 | planned |
+
+### Across the worlds: autonomy
+
+These are capabilities over the other domains more than domains of their own. None needs its own
+process or plugin.
+
+| Capability | What it does | Where it lives | State |
+|---|---|---|---|
+| `routines` | morning, evening, contextual sequences | rules plus the scheduler; pi for the open-ended steps | planned |
+| `monitoring` | watching outside conditions and changes | hosts feeding the world | the home's feed only |
+| `notifications` | whether a thing is worth saying, and when | Metis decides whether it is worth saying; FSTTM decides when she may speak | levels per kind today (`nina.yaml` levels); a domain contract planned (below) |
+| `goals`, `opportunities` | long-term objectives; relevant events, products, articles | rules over interests, projects, news | planned |
+| `diagnostics` | finding why something failed or disagrees | the world's surprises plus pi | the semantic world records surprises |
+| `refinement` | new rules learned from surprises | metis-loop's gates; the conversations kept for mining (ARCHITECTURE F7) | the log keeps everything |
+
+Not first: browser automation, sending email, buying anything. They are attractive and complex,
+and less central to the voice.
+
+## The first ten
+
+| Rank | Domain | Effort | Daily use | Metis gain |
+|---:|---|---|---|---|
+| 1 | time and reminders | low | very high | very high |
+| 2 | media (music, radio) | low to medium | very high | very high |
+| 3 | calendar | medium | very high | very high |
+| 4 | weather | low | high | high |
+| 5 | news | medium | high | high |
+| 6 | memory (semantic) | medium to high | very high | very high |
+| 7 | tasks (to-dos) | low to medium | very high | very high |
+| 8 | interests and conversation | medium | very high | high |
+| 9 | projects | medium | high | very high |
+| 10 | cooking and shopping | medium | high | very high |
+
+## Who reasons about what
+
+| Responsibility | Who |
+|---|---|
+| understanding the person's words, resolving ambiguity | Flash (Gemini Live) |
+| the structured world's state; the domain's constraints; resources consumed; lifecycles | Metis |
+| noticing a change that matters | Metis (its conclusions, the world's surprises) |
+| fetching outside information; open-ended work | pi (System 2) with Flash |
+| proposing something new | Flash; Metis checks it |
+| saying it naturally | Flash |
+| finding what the domains do not know | the surprises, mined (metis-loop) |
+
+General world knowledge is not encoded. The persistent state, the relationships and the rules that
+change what Nina does are.
+
+## How a domain would be encoded
+
+The sketches below are illustrative, not checked Metis syntax. Each real package goes through
+`metisc --link` and the composition's checks. The linker's rules learnt so far:
+- every rule has a `%%` line;
+- a member never consumes its own `out`: the agent retracts a crossed signal;
+- a type name means one thing across the members;
+- generated include files are named per package;
+- the capacity declares `type domain`.
+
+### Time and reminders
+
+The best first linear-logic domain: it is all about lifecycles.
+
+```text
+timer(T, name)            % running → paused → expired → acknowledged
+reminder(R, subject)      % its trigger: a time, or a condition another domain concludes
+alarm(A, schedule)
+```
+
+The scheduler writes time as events (a stream in the log, so a replay sees it), and Metis turns
+them into the reminders' transitions. No model watches the clock.
+
+- "Remind me in twenty minutes to check the printer."
+- "Another five minutes."
+- "Remind me to buy batteries when I go shopping." This is a condition: the trigger is a conclusion
+  of `shopping`.
+
+### Media
+
+```text
+playing(source, item)   paused(source, position)   volume(level)
+favourite(station)      preferred(genre)           queued(item, position)
+```
+
+Hosts: MPD (playback and the queue), the Radio Browser API, Audiobookshelf, Home Assistant's media
+players, Jellyfin. Metis keeps the playback state and resolves "the station from yesterday".
+
+With the floor machine, while the person holds the floor, the media rule lowers the volume, and it
+puts it back when the conversation ends. That needs no model.
+
+### Calendar
+
+```text
+event(E, start, end, place)   busy(interval)   travel_time(from, to, minutes)   margin(minutes)
+```
+
+"Remind me to leave before my appointment" becomes a reminder at the appointment's start, minus the
+travel time, minus the person's margin. The calendar's host fetches the facts; Metis holds the
+constraints.
+
+### News
+
+```text
+interest(topic, weight)   story(S, topic)   revision(S, n)   told(S, n)   source_trusted(src)
+```
+
+The rule that matters tells a new story apart from an update to a known one, from one already
+discussed, and from contradictory reports. pi gathers; Metis keeps the stories' lifecycle; Flash
+tells it.
+
+### Memory
+
+| Kind | Where | Example |
+|---|---|---|
+| episodic | the log (SQLite, FTS5): every event | what we discussed yesterday |
+| semantic | Metis facts with their source, confidence and age (the semantic world's beliefs) | the person prefers hard science fiction |
+| procedural | rules, and pi's skills | how the morning briefing is made |
+
+A preference Nina inferred is never mistaken for one the person stated: each fact carries its
+source, as every belief in the semantic world already does (sensor, command, person, metis).
+
+### Interests
+
+This domain is separate from memory. Memory is what Nina knows; interests are what she should pay
+attention to.
+
+```text
+interest(topic, weight)   active(topic)   discussed(topic, when)   open_question(topic)   depth(topic, level)
+```
+
+"Yesterday we discussed camera-only BEV perception; there is a new lightweight architecture." That
+is said only when novelty, relevance and the narration level allow it, and when the floor is free.
+
+### Tasks and commitments
+
+```text
+todo(T) pending → running → blocked → done    depends_on(T1, T2)    deadline(T, when)
+```
+
+"When the print finishes, remind me to check the dimensions" becomes a dependency between a
+printer's event and a to-do, not a question asked of the model again and again. pi carries out the
+to-dos that need investigation; Metis keeps their lifecycle.
+
+### Projects
+
+```text
+project(P, status)   goal(P, g)   decided(P, subject, value)   constraint(P, c)   open(P, question)   depends(P, component)
+```
+
+"Where did we stop with the wheelchair perception project?" "The camera geometry is settled; the
+temporal BEV architecture and its cost are still open." The sources: GitHub, the project's
+documents, past conversations.
+
+### Cooking and inventory
+
+Ingredients are resources consumed, which is linear logic's home ground.
+
+```text
+have(item, qty)   needs(recipe, item, qty)   step(recipe, n)   step_done(recipe, n)
+```
+
+What can be cooked, what is missing, which steps can run at once, and when a timer starts.
+
+## Across domains
+
+The value is in the relations between domains:
+
+| Domains | What follows |
+|---|---|
+| calendar + weather | an outdoor appointment and the rain |
+| calendar + tasks | what to prepare before a meeting |
+| cooking + inventory | meals from what is there |
+| inventory + shopping | the shopping list kept up |
+| home + energy | when to run the appliances |
+| interests + news | the developments worth raising |
+| projects + research | the research relevant to a project |
+| media + the floor | the music lowered while they talk |
+| calendar + pets | the vet's appointment |
+| memory + conversation | continuity across days |
+
+In the composition, a relation is an interface package between the members, and the director routes
+its kinds, the way `iface/home.llp` carries a scene's wishes today. Flash doesn't rebuild the
+relation from a long context each time.
+
+## A domain package
+
+Every domain is a Metis package in `catalog/domains/<name>/`, as the home's are. Marked (new): what
+is still to be built:
+
+```text
+catalog/domains/<name>/
+├── domain.yaml        the manifest: display, line, voice, program, host, clock, shared (the composition's), status
+├── <name>.llp         the rules (each with its %% line)
+├── <name>_*.llp       generated parts (from the map: which, fan)
+├── intent.yaml        the card: verbs, slots, the words for each role
+├── goldens/           the package's day and intents, as metispy writes them
+├── steering.yaml      (new) which conclusions go where (below)
+└── SKILL.md           (new) for pi: how the domain's open-ended work is done
+```
+
+The host, the Go code that reaches the outside world, lives with its tool: acasa's `hass` for the
+home, nina-live's `tools/` for the agent's own, pi's for pi's.
+
+`steering.yaml` would replace today's one `levels` table in `nina.yaml` with a contract per domain:
+
+```yaml
+domain: media
+steering:
+  playback_changed:   {to: voice, as: context, key: media.playback}     # silent context, keyed
+  playback_failed:    {to: task, as: steer}                             # into the running task that used media
+  favourite_found:    {to: memory, as: fact}                            # a belief, no words
+  requested_ready:    {to: voice, as: note, level: important}           # said when the floor is free
+```
+
+The routes map onto what exists: the voice's `Context` and `Note`, a task's `Steer` and `FollowUp`,
+and the world's `Report` and `Conclude`.
+
+## Releases
+
+| Release | Domains | Nina becomes | State |
+|---|---|---|---|
+| 0.1 | home, time, reminders, media | an Alexa replacement | home running; time and media next |
+| 0.2 | calendar, tasks (to-dos), weather | an everyday personal assistant | |
+| 0.3 | memory (semantic), interests, news, briefing | a companion with continuity | |
+| 0.4 | projects, research, books, learning | an intellectual and engineering partner | |
+| 0.5 | cooking, shopping, inventory, energy | the household managed | |
+| 0.6 | monitoring, commitments, goals | proactive | |
+| 0.7 | refinement from surprises | adaptive | |
+
+After 0.1 and 0.2, the intellectual world comes before more household tools. Persistent interests,
+continuity, news, memory and projects do more for the sense of intelligence than another hundred
+conventional tools.
+
+## References
+
+[OpenClaw's integrations](https://openclaw.ai/integrations), [ClawHub's skills](https://clawhub.ai/),
+[Alexa+](https://www.aboutamazon.com/news/devices/new-alexa-top-features),
+[Gemini for Home](https://home.google.com/gemini-for-home-voice-assistant/),
+[ChatGPT's use cases](https://learn.chatgpt.com/use-cases).
