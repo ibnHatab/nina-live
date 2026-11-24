@@ -30,6 +30,7 @@ import (
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/websearch"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	"google.golang.org/genai"
 	"gopkg.in/yaml.v3"
@@ -77,6 +78,12 @@ type Config struct {
 			Key      string `yaml:"key"`
 		} `yaml:"fallback"` // the one-shot asks' (narration) next models when the first fails
 	} `yaml:"tasks"`
+	Search struct { // web_search (websearch/): Google Search grounding through Gemini Flash
+		Enabled bool     `yaml:"enabled"`
+		Models  []string `yaml:"models"` // tried in order
+		Key     string   `yaml:"key"`
+		Daily   int      `yaml:"daily"` // web queries a day at most
+	} `yaml:"search"`
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -204,6 +211,17 @@ func main() {
 	k.Observed = obs.Lines
 	obs.OnLine = k.Observe
 	reads := readTools(obs)
+	if c.Search.Enabled { // web_search: Google Search grounding through Gemini Flash, the voice's and the tasks'
+		key, err := tasks.Key("google", expand(c.Search.Key))
+		if err != nil {
+			stdlog.Fatalf("search: %v", err)
+		}
+		ws, err := websearch.New(ctx, key, c.Search.Models, c.Search.Daily, L, now)
+		if err != nil {
+			stdlog.Fatalf("search: %v", err)
+		}
+		reads = append(reads, ws.Tool())
+	}
 	if k.Tasks != nil {
 		k.Tasks.AddTool(k.Recall())
 		reads = append(reads, k.ExplainTool()) // the voice's and the tasks' (the loop below)
@@ -398,6 +416,8 @@ func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}
 	}
+	// (the Live API's own google_search beside them was tried, 2026-11-25: on a key without billing the
+	// session's setup itself is refused, "exceeded your current quota": her voice would not start)
 	return dialogue.Tools{Decls: []*genai.Tool{{FunctionDeclarations: decls}}, Funcs: funcs}
 }
 
