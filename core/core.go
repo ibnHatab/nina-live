@@ -223,6 +223,26 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 			c.Packages = append(slices.Clone(c.Packages), "habits")
 		}
 	}
+	// her temperament (catalog/persona.yaml) and the persona package's host: the moments that set it aside
+	if tp := c.Temperament; tp != "-" {
+		if tp == "" {
+			tp = filepath.Join(c.Root, "persona.yaml")
+		}
+		pc, err := persona.Load(tp)
+		if err != nil {
+			return nil, fmt.Errorf("the temperament: %w", err)
+		}
+		k.mood = &persona.Selector{C: pc}
+		ph := &persona.Host{Sel: k.mood, Now: func() time.Time { return time.Unix(int64(c.Now()), 0) },
+			OnChange: func() { k.mu.Lock(); k.moodAt = time.Time{}; k.mu.Unlock() }} // evaluated at the next beat
+		if hosts == nil {
+			hosts = map[string]metishome.HostSpec{}
+		}
+		hosts["persona"] = metishome.HostSpec{New: func() metishome.Host { return ph }, Outcomes: persona.Outcomes}
+		if c.Composed && !slices.Contains(c.Packages, "persona") {
+			c.Packages = append(slices.Clone(c.Packages), "persona")
+		}
+	}
 	if hosts != nil {
 		k.Cfg.Packages = c.Packages
 	}
@@ -249,16 +269,6 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	}
 	if err := k.loadCharacter(ctx); err != nil {
 		return nil, err
-	}
-	if tp := c.Temperament; tp != "-" {
-		if tp == "" {
-			tp = filepath.Join(c.Root, "persona.yaml")
-		}
-		pc, err := persona.Load(tp)
-		if err != nil {
-			return nil, fmt.Errorf("the temperament: %w", err)
-		}
-		k.mood = &persona.Selector{C: pc}
 	}
 	k.World.OnOut = func(e semhome.Event, out semhome.Out) {
 		for _, s := range out.Surprises {

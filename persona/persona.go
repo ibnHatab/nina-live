@@ -15,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -259,6 +260,7 @@ type State struct {
 // Selector keeps the mood from one evaluation to the next (its hysteresis).
 type Selector struct {
 	C        *Config
+	mu       sync.Mutex // the core's beat evaluates, the persona host's events override
 	cur      State
 	override struct {
 		mood  string
@@ -268,12 +270,16 @@ type Selector struct {
 
 // Override forces a mood until a time (an emergency's calm, a person's wish): immediate.
 func (s *Selector) Override(mood string, until time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.override.mood, s.override.until = mood, until
 }
 
 // Eval is the mood now: the best by score, unless the current one has held less than MinStay or
 // the best does not win by Advantage. The first call takes the best.
 func (s *Selector) Eval(now time.Time, activity string) State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sc := s.C.Scores(now, activity)
 	best := ""
 	for _, m := range s.C.MoodNames() {
