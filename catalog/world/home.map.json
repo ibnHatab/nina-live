@@ -26,8 +26,8 @@
     "lights": {"handle": "la", "noun": "light", "words": ["light", "lights", "lamp", "the light", "the lights"]},
     "units": {"handle": "ua", "noun": "ventilation unit", "words": ["ventilation", "vent", "fan", "fans", "recuperator", "heating", "heater", "the ventilation", "the heating"]}
   },
-  "radar": {"r1": null, "r2": null, "r3": null, "r4": null, "_note": "mmWave presence radar: not yet wired; entity per room (binary_sensor) when it is"},
-  "thermometers": {"r1": null, "r2": null, "r3": null, "r4": null, "_note": "Bluetooth thermometers: not yet wired; {temperature, humidity} sensor entities per room"},
+  "radar": {"r1": null, "r2": null, "r3": null, "r4": "binary_sensor.kitchen_vlad_s_echo_dot_motion", "_note": "presence per room (binary_sensor): mmWave radars not yet wired; the kitchen's is the Echo Dot's motion (2026-11-24)"},
+  "thermometers": {"r1": null, "r2": null, "r3": null, "r4": {"temperature": "sensor.kitchen_vlad_s_echo_dot_temperature", "humidity": ""}, "_note": "{temperature, humidity} sensor entities per room: Bluetooth thermometers not yet wired; the kitchen's is the Echo Dot's (temperature only, 2026-11-24)"},
   "sun": "sun.sun",
   "thresholds": {
     "_doc": "the host's classes, with hysteresis (Steady reading): enter at the first number, leave at the second",
