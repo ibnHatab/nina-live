@@ -8,6 +8,10 @@
 
 curious: 0.14          # one time in seven the home tries something new on purpose: the quirk that keeps it alive
 
+routines:              # the home turns to a mood each day at these times (Nina's scheduler asks the scenes)
+  sleep: "22:00"       # the light fades like a sunset, the music whispers
+  wake: "07:00"        # white light, the morning's music
+
 moods:                 # each mood's tags, per kind: what a domain looks for when the director routes the mood to it
   calm:   {station: [ambient, calm, classical], colour: [warm, dim], air: [quiet]}
   cozy:   {station: [jazz, classic, acoustic], colour: [warm, amber], air: [normal]}

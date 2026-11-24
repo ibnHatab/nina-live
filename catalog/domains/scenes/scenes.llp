@@ -21,7 +21,19 @@ pred refused(scenes_act) : home.
 pred suggest(scene) : home.
 pred welcomed : home.
 
+% the home's mood (the user: profiles and routines that make sense together, the home's character):
+% one wish to every domain that expresses it, each choosing its own expression by the mood's tags
+% (catalog/character.yaml) and the person's taste in that mood. At the person's word, or by a
+% routine on Nina's clock (the character's times: the scheduler asks as a person would).
+pred mood_now(mood) : home.
+pred no_mood : home.
+pred cmd_mood(mood) : home.
+
 stage serve {
+  %% The home turns {M}.
+  mood_set [dyn] : cmd_mood(M) * no_mood -o mood_now(M) * mood_music(M) * mood_glow(M) * done(scene).
+  %% From {M0} to {M}.
+  mood_change [dyn] : cmd_mood(M) * mood_now(M0) -o mood_now(M) * mood_music(M) * mood_glow(M) * done(scene).
   %% I switch the home to its {S} mode.
   scene_set [dyn] : cmd_scene(S) * mode(M) * other(M, S) -o mode(S) * scene_lights(S) * scene_air(S) * scene_media(S) * scene_timers(S) * scene_music(S) * done(scene).
   %% The home is already in its {S} mode.
@@ -50,3 +62,5 @@ stage serve {
 #init mode(home) 1
 #query mode(night)
 #steps 4
+
+#init no_mood 1

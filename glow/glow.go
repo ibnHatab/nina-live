@@ -56,6 +56,8 @@ type Host struct {
 	KeepAfter  time.Duration // a colour left on this long is kept (default 30 min)
 	SkipWithin time.Duration // changed within this, skipped (default 2 min)
 	Mood       string
+	Moods      map[string][]string // mood → the tags a colour of that mood carries (catalog/character.yaml)
+	FadeStep   time.Duration       // the sleep mood's sunset fade: between its stages (default 10 min)
 
 	mu         sync.Mutex
 	registered bool
@@ -66,6 +68,7 @@ type Host struct {
 	left       *current
 	pend       []string
 	bright     int
+	fade       int // a fade's generation: a newer change stops an older fade
 }
 
 type current struct {
@@ -142,6 +145,20 @@ func (h *Host) Tick(map[string]int) []string {
 			want["runner_up("+h.alt+")"] = true
 		}
 	}
+	for m, tags := range h.Moods { // the colour each mood would take now
+		mc := sw.Context{Part: c.Part, Mood: m}
+		best, bestP := sw.Choice{}, -1.0
+		for _, tag := range tags {
+			if ch, ok := h.taste().Select("colour", []string{tag}, mc, nil); ok && ch.P > bestP {
+				best, bestP = ch, ch.P
+			}
+		}
+		o := "warm"
+		if bestP >= 0 {
+			o = offerOf(best.ID)
+		}
+		want["mood_pick("+m+","+o+")"] = true
+	}
 	l := h.last[c.Part]
 	if l == "" {
 		l = "warm"
@@ -187,7 +204,37 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 	if h.asserted == nil {
 		h.asserted, h.last = map[string]bool{}, map[string]string{}
 	}
+	switch rule { // a change of the light ends a fade under way
+	case "glow", "reglow", "something", "something_new", "something_else", "something_new_one", "again", "off", "mood_glow_on", "mood_glow_change":
+		h.fade++
+	}
 	switch rule {
+	case "mood_glow_on", "mood_glow_change":
+		m := ""
+		for _, kv := range strings.Split(strings.TrimSuffix(rest, "]"), ",") {
+			if k, v, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) == "M" {
+				m = strings.TrimSpace(v)
+			}
+		}
+		h.Mood = m
+		if m == "sleep" { // the home's sunset: warm, then orange, then ember, a stage at a time
+			h.leaving()
+			p, _ := preset("ember")
+			h.cur = &current{p: p, at: h.now()}
+			h.last[taste.Part(h.now())] = "ember"
+			go h.sunset(h.fade)
+			return
+		}
+		p, ok := preset(o)
+		if !ok {
+			return
+		}
+		h.leaving()
+		h.cur = &current{p: p, at: h.now()}
+		h.last[taste.Part(h.now())] = p.Offer
+		h.bright = p.Brightness
+		h.say(fmt.Sprintf("turn on %s", h.light()), fmt.Sprintf("set %s to %s", h.light(), p.Colour),
+			fmt.Sprintf("set %s to %d percent", h.light(), p.Brightness))
 	case "glow", "reglow", "something", "something_new", "something_else", "something_new_one", "again":
 		if o == "gx_colour" { // the person's own words: the taste's select over the colours' tags
 			words, _ := payload["words"].(string)
@@ -254,6 +301,33 @@ func (h *Host) say(cmds ...string) {
 		defer cancel()
 		h.Say(ctx, cmds)
 	}()
+}
+
+// sunset is the sleep mood's fade: warm white, sunset orange, ember, FadeStep apart; a later change
+// (a newer generation) ends it.
+func (h *Host) sunset(gen int) {
+	step := h.FadeStep
+	if step <= 0 {
+		step = 10 * time.Minute
+	}
+	for i, offer := range []string{"warm", "sunset", "ember"} {
+		if i > 0 {
+			time.Sleep(step)
+		}
+		h.mu.Lock()
+		if h.fade != gen {
+			h.mu.Unlock()
+			return
+		}
+		p, _ := preset(offer)
+		h.bright = p.Brightness
+		cmds := []string{fmt.Sprintf("set %s to %s", h.light(), p.Colour), fmt.Sprintf("set %s to %d percent", h.light(), p.Brightness)}
+		if i == 0 {
+			cmds = append([]string{fmt.Sprintf("turn on %s", h.light())}, cmds...)
+		}
+		h.say(cmds...)
+		h.mu.Unlock()
+	}
 }
 
 // Name names a colour in the lines: "amber, 35%".

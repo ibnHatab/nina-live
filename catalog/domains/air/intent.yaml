@@ -53,7 +53,7 @@ outcomes: {done: done, refused: refused}
 handles:
   unit:
     u1: {description: ["bedroom ventilation", "bedroom vent", "bedroom fan", "bedroom recuperator"]}
-    u2: {description: ["lab ventilation", "lab vent", "lab fan", "lab recuperator"]}
+    u2: {description: ["living room ventilation", "lab ventilation", "living room vent", "lab vent", "living room fan", "lab fan", "lab recuperator"]}
     ua: {description: ["ventilation", "vent", "fan", "fans", "recuperator", "heating", "heater", "the ventilation", "the heating"]}
 fallback: {unit: ux}
 standing: [ux, ua]

@@ -111,7 +111,8 @@ func (m *Memory) Get(id string) (sw.Item, bool) {
 // Character is catalog/character.yaml.
 type Character struct {
 	Curious float64                        `yaml:"curious"`
-	Moods   map[string]map[string][]string `yaml:"moods"` // mood → kind → tags
+	Moods   map[string]map[string][]string `yaml:"moods"`    // mood → kind → tags
+	Routine map[string]string              `yaml:"routines"` // mood → HH:MM: the home turns to it each day
 	Priors  []struct {
 		Tag  string  `yaml:"tag"`
 		Part string  `yaml:"part"`
@@ -134,6 +135,17 @@ func LoadCharacter(path string) (*Character, error) {
 	s := sha256.Sum256(b)
 	c.Hash = hex.EncodeToString(s[:8])
 	return &c, nil
+}
+
+// MoodTags are the moods' tags for one kind (station, colour): what a host looks for in a mood.
+func (c *Character) MoodTags(kind string) map[string][]string {
+	out := map[string][]string{}
+	for m, kinds := range c.Moods {
+		if tags := kinds[kind]; len(tags) > 0 {
+			out[m] = tags
+		}
+	}
+	return out
 }
 
 // Events are the character as world events (its priors and its curiosity).

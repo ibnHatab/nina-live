@@ -25,8 +25,7 @@ outcomes: {said: done, refused: refused}
 handles:
   room:
     r1: {description: ["bedroom"]}
-    r2: {description: ["lab", "workshop"]}
-    r3: {description: ["living room", "lounge"]}
+    r2: {description: ["living room", "lounge", "lab", "workshop"]}
     r4: {description: ["kitchen"]}
 fallback: {room: rx}
 standing: [rx]

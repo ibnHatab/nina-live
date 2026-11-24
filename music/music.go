@@ -70,9 +70,10 @@ type Host struct {
 	Taste      taste.Client // the semantic world's taste (nil: a memory of its own)
 	Save       func(Event)
 	Now        func() time.Time
-	KeepAfter  time.Duration // a station on this long is kept (default 10 min)
-	SkipWithin time.Duration // a station left within this is skipped (default 90 s)
-	Mood       string        // the mood now ("" none: step 3's director sets it)
+	KeepAfter  time.Duration       // a station on this long is kept (default 10 min)
+	SkipWithin time.Duration       // a station left within this is skipped (default 90 s)
+	Mood       string              // the mood now (the director's mood wish sets it)
+	Moods      map[string][]string // mood → the tags a station of that mood carries (catalog/character.yaml)
 
 	mu       sync.Mutex
 	last     map[string]Station // part → the station played last at that time of day
@@ -87,6 +88,7 @@ type Host struct {
 	pend     []string // lines for the next beat (skipped)
 	left     *current // the station just left within SkipWithin
 	stations map[string]Station
+	moodBind map[string]Station // mood → the station mood_pick(M, O) stands for
 }
 
 type current struct {
@@ -226,6 +228,42 @@ func (h *Host) Tick(map[string]int) []string {
 			}
 		}
 	}
+	// what each mood would play now: the best of its tags in that mood (the taste, the character)
+	if h.moodBind == nil {
+		h.moodBind = map[string]Station{}
+	}
+	for m, tags := range h.Moods {
+		mc := sw.Context{Part: c.Part, Mood: m}
+		best, bestP := sw.Choice{}, -1.0
+		for _, tag := range tags {
+			if ch, ok := h.taste().Select("station", []string{tag}, mc, nil); ok && ch.P > bestP {
+				best, bestP = ch, ch.P
+			}
+		}
+		o := ""
+		if bestP >= 0 {
+			if s, ok := h.station(best.ID); ok {
+				h.moodBind[m], o = s, h.genreOf(best.ID)
+			}
+		}
+		if o == "" || o == "gx" { // no station of the mood yet: its first tag that is a genre, found in the directory
+			for _, tag := range tags {
+				for _, g := range Genres {
+					if tag == g {
+						o = g
+					}
+				}
+				if o != "" && o != "gx" {
+					break
+				}
+			}
+			if o == "" || o == "gx" {
+				o = "ambient"
+			}
+			h.moodBind[m] = Station{Tags: []string{o}}
+		}
+		want["mood_pick("+m+","+o+")"] = true
+	}
 	lastGenre := "jazz"
 	if s, ok := h.last[c.Part]; ok {
 		lastGenre = h.genreOf(s.ID())
@@ -294,6 +332,22 @@ func bindings(name string) (string, map[string]string) {
 func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 	rule, b := bindings(name)
 	switch rule {
+	case "mood_play", "mood_switch":
+		h.mu.Lock()
+		h.leaving()
+		m := b["M"]
+		h.Mood = m
+		st := h.moodBind[m]
+		switch m { // the home's character: how loud a mood is
+		case "sleep":
+			h.vol = 0.12
+		case "calm":
+			h.vol = 0.25
+		case "lively":
+			h.vol = 0.45
+		}
+		h.mu.Unlock()
+		go h.tune(b["O"], "", st)
 	case "play", "switch", "something", "something_new", "something_else", "something_new_one", "again":
 		words, _ := payload["words"].(string)
 		if words == "" {

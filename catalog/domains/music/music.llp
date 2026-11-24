@@ -32,6 +32,8 @@ pred quieter : home.
 pred duck_down : home.
 pred duck_up : home.
 pred whisper : home.
+pred mood_pick(mood, offer) : home.    % the host: what each mood would play now (the taste, in the mood's tags)
+pred moody(mood) : home.
 
 stage serve {
   %% I put on {O}.
@@ -54,6 +56,12 @@ stage serve {
   unduck [dyn] : $floor_free * ducked -o unducked * duck_up.
   %% The music stopped while ducked.
   unduck_idle [dyn] : $idle * ducked -o unducked.
+
+  % ── the director: a mood's wish (the atmosphere's) ──
+  %% For a {M} mood: {O}.
+  mood_play [dyn] : mood_music(M) * idle * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
+  %% The mood turns {M}: {O}.
+  mood_switch [dyn] : mood_music(M) * active(A) * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
 
   % ── the director: a scene's wish ──
   %% Good night: the music fades to a whisper.

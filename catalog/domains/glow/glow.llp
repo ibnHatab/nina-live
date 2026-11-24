@@ -9,6 +9,7 @@ provenance text "glow: the bedroom light's colours, the taste's lifted rules ove
 layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
+include "../iface/home.llp".
 include "../shared/offers.llp".   % the colours (gx_colour: the person's own words)
 include "../taste_domain.llp".
 
@@ -17,12 +18,18 @@ pred cmd_brighter : home.
 pred cmd_dimmer : home.
 pred brighter : home.
 pred dimmer : home.
+pred mood_pick(mood, offer) : home.    % the host: the colour each mood would take now
+pred moody(mood) : home.
 
 stage serve {
   %% The bedroom light goes {O}.
   glow [dyn] : cmd_glow(O) * idle -o active(O) * engage(O) * ok.
   %% The bedroom light changes to {O}.
   reglow [dyn] : cmd_glow(O) * active(A) -o active(O) * engage(O) * ok.
+  %% For a {M} mood: {O}.
+  mood_glow_on [dyn] : mood_glow(M) * idle * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
+  %% The mood turns {M}: {O}.
+  mood_glow_change [dyn] : mood_glow(M) * active(A) * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
   %% Brighter.
   up [dyn] : cmd_brighter * $active(O) -o brighter * ok.
   %% Dimmer.

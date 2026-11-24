@@ -3,8 +3,8 @@
 % the rooms that have one, so the conversation asks which room. The rules never pick one.
 catalog lights_which 1.
 stage serve {
-  %% I can't tell which light you mean: there is one in the living room, the bedroom and the lab. Which room?
+  %% I can't tell which light you mean: there is one in the living room and the bedroom. Which room?
   which_light_on [dyn] : cmd_light_on(la) -o refused(on).
-  %% I can't tell which light you mean: there is one in the living room, the bedroom and the lab. Which room?
+  %% I can't tell which light you mean: there is one in the living room and the bedroom. Which room?
   which_light_off [dyn] : cmd_light_off(la) -o refused(off).
 }

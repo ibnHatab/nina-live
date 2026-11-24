@@ -36,12 +36,10 @@ handles:
   light:
     l1: {description: ["living room light", "living room lamp"]}
     l2: {description: ["bedroom light"]}
-    l3: {description: ["lab light"]}
     la: {description: ["light", "lights", "lamp", "the light", "the lights"]}
   room:
     r1: {description: ["bedroom"]}
-    r2: {description: ["lab", "workshop"]}
-    r3: {description: ["living room", "lounge"]}
+    r2: {description: ["living room", "lounge", "lab", "workshop"]}
     r4: {description: ["kitchen"]}
 fallback: {light: lx, room: rx}
 standing: [lx, la, rx]

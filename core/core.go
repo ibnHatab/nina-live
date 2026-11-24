@@ -84,6 +84,8 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
+	Character    *taste.Character // the home's character (its moods, its routines)
+	routineDay   map[string]string
 	Report       world.Report
 
 	mu    sync.Mutex
@@ -299,6 +301,38 @@ func (k *Core) surprise(domain string, r map[string]any) {
 	}()
 }
 
+// routines turn the home to a mood at the character's times (bedtime: sleep; morning: wake), once a
+// day each, as a person would ask the scenes; logged as a routine (stream routine), never as the
+// person's habit.
+func (k *Core) routines() {
+	if k.Character == nil || len(k.Character.Routine) == 0 {
+		return
+	}
+	now := time.Unix(int64(k.Cfg.Now()), 0)
+	hm, day := now.Format("15:04"), now.Format("2006-01-02")
+	k.mu.Lock()
+	if k.routineDay == nil {
+		k.routineDay = map[string]string{}
+	}
+	var due []string
+	for m, at := range k.Character.Routine {
+		if at == hm && k.routineDay[m] != day {
+			k.routineDay[m] = day
+			due = append(due, m)
+		}
+	}
+	k.mu.Unlock()
+	for _, m := range due {
+		m := m
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), k.Cfg.CallTimeout)
+			defer cancel()
+			o := k.Home.Call(ctx, "home_scenes", map[string]any{"intent": "MOOD", "mood": m})
+			k.Log.Append(k.Cfg.Now(), "routine", m, "", "", map[string]string{"status": o.Status, "text": o.Text}, 1)
+		}()
+	}
+}
+
 // ExplainTool is "explain yourself" as a tool: the voice's and the tasks'.
 func (k *Core) ExplainTool() tasks.Tool {
 	return tasks.Tool{Name: "explain", Domain: "explain",
@@ -349,6 +383,13 @@ func (k *Core) loadCharacter(ctx context.Context) error {
 	k.World.Home.W.Lock()
 	priors := len(k.World.Home.W.Taste.Priors)
 	k.World.Home.W.Unlock()
+	k.Character = ch
+	if k.Music != nil {
+		k.Music.Moods = ch.MoodTags("station")
+	}
+	if k.Glow != nil {
+		k.Glow.Moods = ch.MoodTags("colour")
+	}
 	if last == ch.Hash && (priors > 0 || len(ch.Priors) == 0) {
 		return nil // loaded, and still in the world
 	}
@@ -398,6 +439,7 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 			return
 		case <-tk.C:
 			k.Home.Beat()
+			k.routines()
 		}
 	}
 }

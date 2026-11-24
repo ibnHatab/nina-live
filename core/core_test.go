@@ -269,7 +269,7 @@ func TestTheWorldBeforeEachRequestIsReplacedNotPiled(t *testing.T) {
 		if len(seen) != 3 || seen[0] != want || seen[1] != want || seen[2] != want {
 			t.Fatalf("transform %v: HOME now per request %v", on, seen)
 		}
-		if on && (!strings.HasPrefix(first[0], "HOME now") || !strings.Contains(first[0], "lab ventilation: stopped")) {
+		if on && (!strings.HasPrefix(first[0], "HOME now") || !strings.Contains(first[0], "living room ventilation: stopped")) {
 			t.Fatalf("the world's lines: %q", first[0])
 		}
 	}
@@ -732,4 +732,69 @@ func TestTheBedroomLightOnTheSameRules(t *testing.T) {
 	waitSaid("turn off LED Geiling lights")
 	t.Logf("something: %s", homeCall(t, r.k, "home_glow", map[string]any{"intent": "SOMETHING"}))
 	waitSaid("set LED Geiling lights to")
+}
+
+// TestAMoodReachesTheMusicAndTheLightTogether: one mood from the scenes (the planner), carried by
+// the director to the music and the bedroom light; each picks its own expression by the mood's tags
+// (the character) and the taste: calm music, a calm colour; sleep fades the light like a sunset and
+// the music whispers.
+func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
+	var mu sync.Mutex
+	var played []string
+	var vols []float64
+	var said []string
+	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		mu.Lock()
+		defer mu.Unlock()
+		switch service {
+		case "play_media":
+			played = append(played, data["media_content_id"].(string))
+		case "volume_set":
+			vols = append(vols, data["volume_level"].(float64))
+		}
+		return nil
+	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
+	}}
+	rigGlow = &glow.Host{FadeStep: 200 * time.Millisecond, Say: func(_ context.Context, cmds []string) error {
+		mu.Lock()
+		said = append(said, strings.Join(cmds, "; "))
+		mu.Unlock()
+		return nil
+	}}
+	defer func() { rigMusic, rigGlow = nil, nil }()
+	r := newRig(t, tasks.All)
+	r.k.Taste.Register(sw.Item{ID: "station:drone", Kind: "station", Name: "Drone Zone", Ref: "http://radio/drone", Tags: []string{"ambient", "calm"}})
+	r.k.Taste.Register(sw.Item{ID: "station:pop", Kind: "station", Name: "Hits", Ref: "http://radio/pop", Tags: []string{"pop"}})
+	time.Sleep(300 * time.Millisecond) // a beat: the moods' picks asserted
+	snap := func() ([]string, []float64, []string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string{}, played...), append([]float64{}, vols...), append([]string{}, said...)
+	}
+	waitFor := func(what string, ok func() bool) {
+		for i := 0; i < 50 && !ok(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !ok() {
+			p, v, s := snap()
+			t.Fatalf("never: %s (played %v, volumes %v, Alexa %v)", what, p, v, s)
+		}
+	}
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "MOOD", "mood": "calm"})
+	waitFor("calm music", func() bool { p, _, _ := snap(); return len(p) > 0 && p[len(p)-1] == "http://radio/drone" })
+	waitFor("a calm colour", func() bool {
+		_, _, s := snap()
+		return len(s) > 0 && (strings.Contains(s[len(s)-1], "warm white") || strings.Contains(s[len(s)-1], "amber"))
+	})
+	waitHeard(t, r.v, "For a calm mood:")
+
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "MOOD", "mood": "sleep"})
+	waitFor("the sunset's three stages", func() bool {
+		_, _, s := snap()
+		all := strings.Join(s, " | ")
+		return strings.Contains(all, "to warm white") && strings.Contains(all, "to orange") && strings.Contains(all, "to dark orange")
+	})
+	waitFor("the music whispering", func() bool { _, v, _ := snap(); return len(v) > 0 && v[len(v)-1] == 0.12 })
+	waitHeard(t, r.v, "The mood turns sleep")
 }

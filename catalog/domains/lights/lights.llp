@@ -85,10 +85,8 @@ stage serve {
 % the start: everything dark and answering; the host corrects it on the first beat
 #init light_dark(l1) 1
 #init light_dark(l2) 1
-#init light_dark(l3) 1
 #init light_ok(l1) 1
 #init light_ok(l2) 1
-#init light_ok(l3) 1
 #query done(on)
 #query refused(on)
 #steps 4

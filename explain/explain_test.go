@@ -24,7 +24,10 @@ func TestTheTraceAndTheScripts(t *testing.T) {
 	L.Append(102, "reasoning", "event", "music", "", map[string]string{"line": "music noticed: Good night: the music fades to a whisper."}, 1)
 	var got string
 	x := &Explainer{Log: L, Root: "../catalog", Now: func() float64 { return 200 },
-		Ask: func(_ context.Context, sys, prompt string) (string, error) { got = sys + "\n" + prompt; return "because", nil }}
+		Ask: func(_ context.Context, sys, prompt string) (string, error) {
+			got = sys + "\n" + prompt
+			return "because", nil
+		}}
 	ans, err := x.Explain(context.Background(), "why is the music so quiet?", 5)
 	if err != nil || ans != "because" {
 		t.Fatalf("%q %v", ans, err)
