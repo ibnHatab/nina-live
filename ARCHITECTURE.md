@@ -156,9 +156,18 @@ nina (director: the catalog's base + nina's instance)
 - **`metisc build` / `--link` certifies the whole as one image** (I1–I13, L13–L25). A tool
   that does not fit the interface fails the build, not the conversation.
 
-### 3.2 How the models see it
+### 3.2 Metis is a second reasoning loop, not a tool
 
-Both models see the same registry, through two adapters:
+A tool runs when the LLM decides to call it. Metis does not wait to be called: it beats on its
+own clock and on every change of the ports it reads, and its conclusions change what both LLMs
+know next. Nina's cognitive core is the pair of loops, coupled through the log:
+
+- **Metis's loop:** events → world → beat → conclusions and surprises → events.
+- **The LLMs' loops:**
+  - Gemini Live: heard → turn → tool calls → said.
+  - pi: context → model → tool calls → results → context.
+
+**How the LLMs see Metis.** Both see the same registry, through two adapters:
 
 - **System 1, Gemini Live (fsttm-live):**
   - Its tools are **two cards: the director's and the attended specialist's** (DIRECTOR.md's
@@ -168,22 +177,41 @@ Both models see the same registry, through two adapters:
   - Each card's verbs are `agent.AgentTool`s.
   - `Execute` submits the intent frame and returns the outcome. The outcome is `accepted`,
     then a result on a later beat, as metis-loop's `intent_<verb>` does today.
-  - pi runs the task's goal with the world's lines and the recalled episodes in its system
-    prompt.
-  - Its result is a `task done` event, which becomes a NOTE with the task's level. The floor
-    machine says it when the floor is free.
+  - Acting cards run `ExecutionMode: ToolSequential`: a batch of mutating calls goes in order,
+    the way the tick would take them anyway.
 
-### 3.3 No hooks
+**What each LLM receives from Metis**, by the kind of output:
 
-The gating, the refusals and the approval of a mutating call are **rules in the composition**,
-not pi hooks. `BeforeToolCall`, `AfterToolCall` and `TransformContext` stay unused:
+| Metis output | Gemini Live (fsttm-live) | pi (a running task) |
+|---|---|---|
+| the current beliefs (projected lines) | silent context, keyed (`ContextKey`: a newer line replaces the older) | `TransformContext`: the projection replaces the previous one before each request, filtered to the task's specialists; nothing piles up in the transcript |
+| a new conclusion | silent context, or a NOTE by its level | `Steer`: delivered after the current tool batch, before the next request (loop.go:247) |
+| a contradiction or surprise | a NOTE if its level passes the knob | `Steer`; a surprise with no task may *start* one (below) |
+| a refusal, with its reason | the tool's result | the tool's result |
+| an outcome on a later beat | a NOTE | `FollowUp` if the run is ending, else `Steer` |
 
-- a refusal comes back as the tool's result, with its reason;
-- the world's state reaches pi as the system prompt at the run's start, and as tool results;
-- notes reach a running agent through `Agent.Steer` / `FollowUp`: messages, not hooks.
+- **Autonomy:** Metis runs when neither LLM does. A rule whose conclusion needs deliberation
+  (for example a director `escalate`, or an `advise_*` with a goal) emits `task(goal, level)`
+  on its output port. That is a `task created` event, and Nina starts a pi run for it. If a
+  task on the same specialists is already running, the conclusion is steered into it instead.
+- **What is relevant** is decided by the composition, not by guesswork: the task records the
+  specialists it attended, and only their lines and conclusions reach it.
 
-What the rules don't know, the agent can't do. That is one place to read, one to change and
-one to certify.
+### 3.3 Which pi mechanisms, and why
+
+pi offers hooks; a few are used, and none of them for policy:
+
+| pi mechanism | Used? | Why |
+|---|---|---|
+| `Steer`, `FollowUp` | **yes** | messages from outside the run: Metis's new conclusions, outcomes, notes |
+| `TransformContext` | **yes, read-only** | it puts the current world projection in place before each request. It is a projection; it decides nothing |
+| `BeforeToolCall` | **no** | every acting tool *is* a Metis verb: submitting the intent is the check, and a refusal is the result. A separate `Validate` before `Execute` would evaluate the same rules twice, and the world can change between the two (check, then act) |
+| `AfterToolCall` | **no** | a tool's result already enters Metis as an `in` line, and so the log, by the effector that produced it |
+| `FinishTurn` | later | it could keep a task running while its goal atom is not yet concluded |
+
+So the gating, the refusals and the approval of a mutating call are **rules in the
+composition**. What the rules don't know, the agent can't do. That is one place to read, one to
+change and one to certify.
 
 ### 3.4 What is missing
 
@@ -196,7 +224,39 @@ The big items:
 - **Generating specialists from tool schemas,** and `handles/2` from the manifests (DIRECTOR.md's
   open point 1).
 
-## 4. fsttm-live's facade
+## 4. The dataflows
+
+Every arrow goes through the log. Something that is not an event did not happen, as far as the
+world, the replay and the mining are concerned.
+
+| # | Flow | Path |
+|---|---|---|
+| F1 | **A spoken command** (fast) | the ReSpeaker → fsttm-live (VAD, the wake word, the ears) → `heard` → Gemini Live → a card's verb → `intent` → the tick → a rule fires → `command` (the world's prediction) → acasa's effector (HA REST) → `ha_state` comes back → the world → the tool's result → `said` |
+| F2 | **An observation** | HA's websocket → `ha_state` → the apply loop → the world → `settle` → the members whose ports changed wake → `conclude` / surprises → the world → the projections: Live's silent context, a NOTE by its level, `Steer` into a running task |
+| F3 | **A delegated goal** | Gemini Live → `delegate(goal)` → `task created` → a pi run (the world projection by `TransformContext`, episodes recalled by the memory specialist) → card verbs (as F1 from `intent` on) → `task done` → a NOTE → the floor machine says it when the floor is free |
+| F4 | **Autonomy** | a member's conclusion → its output `task(goal, level)` → `task created` → as F3, with no one having asked; or `Steer` into the running task on the same specialists |
+| F5 | **A person's word** | "I switched the lamp off" → the director routes it as a report → `report` (weak evidence, the utterance id as its ref) → the world; against a sure, fresh sensor it is an evidential surprise instead |
+| F6 | **Rebuild** | at start: the last snapshot of this code version + the tail, or genesis → the world; the episodes, the tasks, the prefs and the transcripts are rebuilt as projections; the Live session is resumed with its context rebuilt from them |
+| F7 | **Mining** | the conversations are kept, all of them. A scheduled pi task reads the episodes, the surprises and the director's `nohandler` / `refused(route)` → **proposals**: a new tool where people asked for what no specialist handles, a new rule where the world surprised → metis-loop's gate cascade (`pack_propose`) → the person approves → a catalog commit → a new image (a new code version: the world replays) |
+
+What changed from the first draft, after checking these flows:
+
+- **Metis TCP first?** No. A world that lives in metis-home is written by metis-home, not by
+  the log, so the log stops being the source. A one-day spike over the existing ports
+  (8768/8766) is fine to try `Steer` and `TransformContext` against a real pi run, but milestone 1
+  is in-process.
+- **A `ReasoningSystem` interface** (Observe / Infer / Snapshot / Validate / Events) maps onto
+  what exists, with one call fewer:
+  - `Observe` is an append to the log.
+  - `Infer` is the beat; no LLM calls it.
+  - `Snapshot` is `Project(world)` filtered to a scope.
+  - `Events` is the log's subscription to `conclude` and `task created`.
+  - `Validate` is dropped: the verb is the check.
+- **Listeners block the loop:** pi's `Subscribe` listeners run on the loop's goroutine
+  (agent.go:701). The listener that logs `message_end` only appends to the log's in-memory
+  queue; the SQLite write happens on the log's own goroutine.
+
+## 5. fsttm-live's facade
 
 ```go
 package dialogue // github.com/ibnHatab/fsttm-live/pkg/dialogue
@@ -223,7 +283,7 @@ What moves out of fsttm-live:
 | `internal/config` prefs/plugins/sources | nina-live config; fsttm-live keeps the dialogue's part |
 | `testdata/charter-v2.txt` | split: the voice's floor and role rules stay in fsttm-live; Nina's identity, home and tasks go to nina-live |
 
-## 5. nina-live's layout
+## 6. nina-live's layout
 
 ```
 nina-live/
@@ -244,7 +304,7 @@ acasa supplies `hass/` (the HA tool: the feed becomes `ha_state` events, the RES
 the home specialists' effectors), `home/` (metis-home's host: families, views) and the
 deployment.
 
-## 6. Milestones
+## 7. Milestones
 
 1. **The same Nina, in the new layout, without pi:**
    - `cmd/nina`: fsttm-live through `pkg/dialogue`, the home packages flat (as today) on the
@@ -264,7 +324,7 @@ deployment.
 4. **The rest:** the scheduler, skills (pi's SKILL.md, given programmatically:
    `BuildSystemPromptOptions.Skills`), calendar and mail as specialists, MCP for outside clients.
 
-## 7. Facts this rests on (read 2026-11-24)
+## 8. Facts this rests on (read 2026-11-24)
 
 - **pi (sky-valley/pi, MIT, go 1.26, deps: x/image, x/text; 50 commits 11-14…11-23):**
   - `agent.NewAgent` needs only `ai` (+ the providers' blank import).
@@ -286,12 +346,19 @@ deployment.
     taking `now`.
   - Three map-order loops in `home.go` are to fix.
 
-## 8. To decide
+## 9. Decided, and to decide
 
-1. **metis-agent's public package and the Go director tick:** both are changes to
-   metis-lang-dev's repositories. Are they on the `home-cgo` branch or on main, and who
-   reviews them?
-2. **The nina-live repository on GitHub:** private or public, under ibnHatab?
-3. **pi needs Go 1.26.** The machines have 1.22, and the toolchain is fetched per module (as
-   fsttm-live's 1.25 is already).
-4. **The episodes' retention:** keep everything (text only, small), or a horizon?
+Decided (2026-11-24):
+
+- **nina-live** is a public repository under ibnHatab; fsttm-live is public too.
+- **Go 1.26** for nina-live and fsttm-live (pi needs it). The toolchain comes through the
+  module's `go` line.
+- **The conversations are kept, all of them,** for mining (F7): what people ask that nothing
+  handles, and where the world surprised, are the input for new tools and new rules.
+
+To decide:
+
+1. **metis-agent's public package and the Go director tick** are changes to metis-lang-dev's
+   repositories. Do they go on the `home-cgo` branch or on main, and who reviews them?
+2. **Using `TransformContext` (read-only) and `Steer`:** this bends "no hooks" for the
+   projection only (3.3). Is that the reading you meant?
