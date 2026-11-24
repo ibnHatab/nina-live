@@ -12,6 +12,7 @@ import (
 
 	nlog "github.com/ibnHatab/nina-live/log"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
+	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
 	_ "modernc.org/sqlite"
 )
 
@@ -242,5 +243,26 @@ func TestTheWorldStartsFromItsSnapshot(t *testing.T) {
 	_, rep2, err := Open(ctx, l, c2)
 	if err != nil || rep2.Refused == "" {
 		t.Fatalf("other members: %+v %v", rep2, err)
+	}
+}
+
+// TestTheTasteOutlivesAMemberChange: another member refuses the snapshot, and the taste is kept.
+func TestTheTasteOutlivesAMemberChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nina.db")
+	ctx := context.Background()
+	l, _ := nlog.Open(path)
+	c := cfg("test-1")
+	w, _, err := Open(ctx, l, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Apply(semhome.Event{At: 1, Kind: "item", Item: &sw.Item{ID: "vinyl", Kind: "station", Tags: []string{"jazz"}}})
+	w.Apply(semhome.Event{At: 2, Kind: "prefer", ID: "vinyl", Pref: &sw.Context{Part: "evening"}, Delta: 1})
+	want := w.Home.W.Taste.HashText()
+	w.Snapshot(3)
+	c.Members = nil
+	w2, rep, err := Open(ctx, l, c)
+	if err != nil || rep.Refused == "" || w2.Home.W.Taste.HashText() != want {
+		t.Fatalf("other members: %+v %v; taste kept %v", rep, err, w2.Home.W.Taste.HashText() == want)
 	}
 }

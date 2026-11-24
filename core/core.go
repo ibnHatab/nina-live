@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/glow"
 	"github.com/ibnHatab/nina-live/habits"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
@@ -60,6 +61,7 @@ type Config struct {
 	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
 	Agenda          *agenda.Host      // the agenda package's host (writes through Home Assistant); nil when Composed: one that writes nothing
 	Character       string            // the home's character (default Root/character.yaml): the taste's priors, loaded when it changes
+	Glow            *glow.Host        // the glow package's host (the bedroom light through Alexa); nil when Composed: one that reaches nothing
 	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
 	Now             func() float64
 }
@@ -74,6 +76,7 @@ type Core struct {
 	Agenda *agenda.Host
 	Music  *music.Host
 	Habits *habits.Host
+	Glow   *glow.Host
 	Taste  *taste.World // the semantic world's taste, as the hosts use it
 	Report world.Report
 
@@ -161,6 +164,21 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		hosts["music"] = metishome.HostSpec{New: func() metishome.Host { return fresh }, Outcomes: music.Outcomes}
 		if !slices.Contains(c.Packages, "music") {
 			c.Packages = append(slices.Clone(c.Packages), "music")
+		}
+	}
+	if c.Composed || c.Glow != nil {
+		gh := c.Glow
+		if gh == nil {
+			gh = &glow.Host{}
+		}
+		gh.Taste = k.Taste
+		k.Glow = gh
+		if hosts == nil {
+			hosts = map[string]metishome.HostSpec{}
+		}
+		hosts["glow"] = metishome.HostSpec{New: func() metishome.Host { return gh }, Outcomes: glow.Outcomes}
+		if !slices.Contains(c.Packages, "glow") {
+			c.Packages = append(slices.Clone(c.Packages), "glow")
 		}
 	}
 	if c.Composed {
@@ -262,8 +280,11 @@ func (k *Core) loadCharacter(ctx context.Context) error {
 			last = x.Hash
 		}
 	}
-	if last == ch.Hash {
-		return nil
+	k.World.Home.W.Lock()
+	priors := len(k.World.Home.W.Taste.Priors)
+	k.World.Home.W.Unlock()
+	if last == ch.Hash && (priors > 0 || len(ch.Priors) == 0) {
+		return nil // loaded, and still in the world
 	}
 	for _, ev := range ch.Events(k.Cfg.Now()) {
 		if _, err := k.World.Apply(ev); err != nil {

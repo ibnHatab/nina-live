@@ -6,7 +6,7 @@ require (
 	github.com/ibnHatab/acasa v0.0.0-20261124110834-fdc95fd8bd1c
 	github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70
 	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d
-	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261124132443-b9642de902e9
+	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261124133014-0b7f566fa3f2
 	github.com/sky-valley/pi v1.6.32
 	google.golang.org/genai v1.79.1
 	gopkg.in/yaml.v3 v3.0.1

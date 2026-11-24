@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/glow"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
@@ -71,6 +72,7 @@ var rigAgenda *agenda.Host
 
 // rigMusic, rigLog: the music host and the log file of the next rig (zero: the defaults)
 var (
+	rigGlow  *glow.Host
 	rigMusic *music.Host
 	rigLog   string
 )
@@ -119,6 +121,9 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	}
 	if rigMusic != nil {
 		cfg.Music = rigMusic
+	}
+	if rigGlow != nil {
+		cfg.Glow = rigGlow
 	}
 
 	k, err := Open(ctx, cfg)
@@ -674,4 +679,57 @@ func TestTheHomesCharacterChoosesFirst(t *testing.T) {
 	if len(played) == 0 || played[0] != "http://radio/"+want {
 		t.Fatalf("the character's choice: %v, want %s", played, want)
 	}
+}
+
+// TestTheBedroomLightOnTheSameRules: the glow, the taste's second instance: a colour by name sends
+// its colour and brightness to Alexa; "something" chooses by the taste (the home's character first:
+// warm after dark, bright in the morning), and a line names it; off turns it off; a quick change
+// is a skip, evidence against that colour.
+func TestTheBedroomLightOnTheSameRules(t *testing.T) {
+	var mu sync.Mutex
+	var said [][]string
+	rigGlow = &glow.Host{SkipWithin: time.Hour, Say: func(_ context.Context, cmds []string) error {
+		mu.Lock()
+		said = append(said, cmds)
+		mu.Unlock()
+		return nil
+	}}
+	defer func() { rigGlow = nil }()
+	r := newRig(t, tasks.All)
+	lastSaid := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(said) == 0 {
+			return ""
+		}
+		return strings.Join(said[len(said)-1], "; ")
+	}
+	waitSaid := func(sub string) {
+		for i := 0; i < 30 && !strings.Contains(lastSaid(), sub); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !strings.Contains(lastSaid(), sub) {
+			t.Fatalf("Alexa never told %q: %q", sub, lastSaid())
+		}
+	}
+	homeCall(t, r.k, "home_glow", map[string]any{"intent": "COLOUR", "colour": "amber", "words": "amber"})
+	waitSaid("set LED Geiling lights to amber; set LED Geiling lights to 35 percent")
+	waitHeard(t, r.v, "The bedroom light goes amber, 35%")
+	homeCall(t, r.k, "home_glow", map[string]any{"intent": "COLOUR", "colour": "something cosy", "words": "something cosy"})
+	waitSaid("set LED Geiling lights to")
+	time.Sleep(300 * time.Millisecond)
+	skips := 0
+	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+		if e.Kind == "prefer" && strings.Contains(string(e.Data), "colour:bedroom:amber") {
+			skips++
+		}
+		return nil
+	}, "world")
+	if skips != 1 {
+		t.Fatalf("the quick change from amber: %d evidence events", skips)
+	}
+	homeCall(t, r.k, "home_glow", map[string]any{"intent": "OFF"})
+	waitSaid("turn off LED Geiling lights")
+	t.Logf("something: %s", homeCall(t, r.k, "home_glow", map[string]any{"intent": "SOMETHING"}))
+	waitSaid("set LED Geiling lights to")
 }

@@ -23,6 +23,7 @@ repeatable(scenes).
 repeatable(comfort).
 repeatable(timers).
 repeatable(music).
+repeatable(glow).
 once(agenda).
 once(habits).
 

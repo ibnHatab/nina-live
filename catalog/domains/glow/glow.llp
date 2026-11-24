@@ -1,0 +1,36 @@
+% Glow: the bedroom's LED Geiling lights (in Alexa, driven through Home Assistant's script
+% alexa_quiet), the second instance of the taste's lifted rules (../taste_domain.llp): over colours.
+% The colours are items of the semantic world's taste (warm white, amber, sunset orange, ember,
+% white, daylight, cool white), tagged (warm, dim, calm, sunset, sleep, bright, focus, ...); the
+% person's kept and skipped are evidence for a colour at a time of day; the home's character leans
+% (warm after dark, bright in the morning). The glow's own: a colour by name, brighter, dimmer.
+catalog glow 1.
+provenance text "glow: the bedroom light's colours, the taste's lifted rules over colours; a colour by name, brighter, dimmer" "2026-11-24".
+layers (dyn).
+stages (serve).
+include "../shared/home_world.llp".
+include "../shared/offers.llp".   % the colours (gx_colour: the person's own words)
+include "../taste_domain.llp".
+
+pred cmd_glow(offer) : home.
+pred cmd_brighter : home.
+pred cmd_dimmer : home.
+pred brighter : home.
+pred dimmer : home.
+
+stage serve {
+  %% The bedroom light goes {O}.
+  glow [dyn] : cmd_glow(O) * idle -o active(O) * engage(O) * ok.
+  %% The bedroom light changes to {O}.
+  reglow [dyn] : cmd_glow(O) * active(A) -o active(O) * engage(O) * ok.
+  %% Brighter.
+  up [dyn] : cmd_brighter * $active(O) -o brighter * ok.
+  %% Dimmer.
+  down [dyn] : cmd_dimmer * $active(O) -o dimmer * ok.
+  %% The bedroom light is off.
+  up_off [dyn] : cmd_brighter * $idle -o no.
+  %% The bedroom light is off.
+  down_off [dyn] : cmd_dimmer * $idle -o no.
+}
+
+#init idle 1

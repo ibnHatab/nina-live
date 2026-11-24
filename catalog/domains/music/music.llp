@@ -17,9 +17,8 @@ layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
 include "../iface/home.llp".
+include "../shared/offers.llp".   % the genres (gx: the person's own words)
 include "../taste_domain.llp".
-
-type offer {jazz classical ambient lofi rock pop electronic news world gx}.   % gx: the person's own words
 
 pred cmd_play(offer) : home.           % by name (the person's words in the payload)
 pred cmd_louder : home.

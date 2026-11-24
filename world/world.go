@@ -185,12 +185,15 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 				rep.Snapshot = se.Seq
 			}
 		}
-		if rep.Refused != "" { // the events before it are gone: the world starts empty
+		if rep.Refused != "" { // the events before it are gone: the world starts empty, but for the taste
 			h = semhome.New(m, c.Params)
 			for _, mem := range c.Members {
 				if man, err := sw.ReadManifest(mem.Manifest, mem.Name); err == nil && (len(man.Beliefs) > 0 || len(man.Levels) > 0) {
 					h.B.Join(man)
 				}
+			}
+			if x.State != nil && h.RestoreTaste(x.State) == nil {
+				rep.Refused += " (the taste kept)"
 			}
 			w.Home = h
 		}

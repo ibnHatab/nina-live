@@ -26,6 +26,7 @@ import (
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
 	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
+	"github.com/ibnHatab/nina-live/glow"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
@@ -155,7 +156,11 @@ func main() {
 		_, err := ha.Service(ctx, domain, service, data, false)
 		return err
 	}}
-	cc := core.Config{Agenda: ag, Music: mu, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	gl := &glow.Host{Say: func(ctx context.Context, commands []string) error { // script.alexa_quiet: the Echo silenced
+		_, err := ha.Service(ctx, "script", "alexa_quiet", map[string]any{"commands": commands}, false)
+		return err
+	}}
+	cc := core.Config{Agenda: ag, Music: mu, Glow: gl, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
 		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
