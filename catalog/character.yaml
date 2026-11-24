@@ -1,0 +1,38 @@
+# Nina's character (2026-11-24): the home's own leanings, read as the semantic world's taste priors
+# (semworld.Taste.Prior: log-odds per tag and context). What the home leans to before the person has
+# said anything, and keeps where the person has no opinion; the person's kept and skipped override
+# it wherever they disagree. Her voice is prompts/nina.md.
+#
+# A prior's weight is log-odds: 1 a mild lean, 2 a clear one, -1 a mild aversion. A context is a
+# time of day (morning, afternoon, evening, night) and/or a mood (calm, cozy, focus, lively, sleep, wake).
+
+curious: 0.14          # one time in seven the home tries something new on purpose: the quirk that keeps it alive
+
+moods:                 # each mood's tags, per kind: what a domain looks for when the director routes the mood to it
+  calm:   {station: [ambient, calm, classical], colour: [warm, dim], air: [quiet]}
+  cozy:   {station: [jazz, classic, acoustic], colour: [warm, amber], air: [normal]}
+  focus:  {station: [lofi, focus, instrumental], colour: [cool, bright], air: [normal]}
+  lively: {station: [pop, funk, electronic], colour: [bright, colourful], air: [normal]}
+  sleep:  {station: [ambient, sleep], colour: [amber, dim, sunset], air: [night]}
+  wake:   {station: [news, classical], colour: [white, bright], air: [normal]}
+
+priors:
+  # the light follows the sun: warm and low after dark, bright and white in the morning
+  - {tag: warm,     part: evening, l: 2}
+  - {tag: dim,      part: night,   l: 2}
+  - {tag: sunset,   part: night,   l: 1.5}
+  - {tag: bright,   part: morning, l: 2}
+  - {tag: white,    part: morning, l: 1}
+  - {tag: bright,   part: night,   l: -2}
+  # the music: talk and something classical in the morning, jazz in the evening, quiet at night
+  - {tag: news,     part: morning, l: 1}
+  - {tag: classical, part: morning, l: 1}
+  - {tag: lofi,     part: afternoon, l: 1}
+  - {tag: jazz,     part: evening, l: 1.5}
+  - {tag: classic,  part: evening, l: 1}
+  - {tag: ambient,  part: night,   l: 1.5}
+  - {tag: news,     part: night,   l: -1.5}
+  # whatever the hour, a calm mood means calm
+  - {tag: calm,     mood: calm,    l: 2}
+  - {tag: sleep,    mood: sleep,   l: 2}
+  - {tag: focus,    mood: focus,   l: 2}

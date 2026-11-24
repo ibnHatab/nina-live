@@ -50,8 +50,12 @@ type Config struct {
 		URL   string `yaml:"url"`
 		Token string `yaml:"token"`
 	} `yaml:"hass"`
-	Dialogue string            `yaml:"dialogue"`
-	Levels   map[string]string `yaml:"levels"`
+	Dialogue string `yaml:"dialogue"`
+	// Persona is Nina's character, put before the voice's protocol and the task runner's charter
+	// (prompts/nina.md); Voice, the voice's protocol (prompts/voice.md): together, the dialogue's charter
+	Persona string            `yaml:"persona"`
+	Voice   string            `yaml:"voice"`
+	Levels  map[string]string `yaml:"levels"`
 	// Agenda: a target handle (catalog/domains/agenda) → its Home Assistant entity (default
 	// agenda.Default: Nina's Google calendar, Google Tasks' list, the local test pair)
 	Agenda map[string]string `yaml:"agenda"`
@@ -161,6 +165,9 @@ func main() {
 				charter = string(b)
 			}
 		}
+		if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
+			charter = string(b) + "\n\n# The task runner\n\n" + charter
+		}
 		cc.Tasks = &tasks.Config{Provider: c.Tasks.Provider, Model: c.Tasks.Model, KeyFile: c.Tasks.Key, System: charter,
 			MaxTurns: c.Tasks.MaxTurns, Timeout: c.Tasks.Timeout,
 			Mech: tasks.Mechanisms{Transform: on(c.Tasks.Transform), Steer: on(c.Tasks.Steer), FollowUp: on(c.Tasks.FollowUp)}}
@@ -188,6 +195,16 @@ func main() {
 	dcfg, err := dialogue.LoadConfig(expand(c.Dialogue))
 	if err != nil {
 		stdlog.Fatal(err)
+	}
+	if c.Persona != "" && c.Voice != "" { // the charter: Nina's character, then the voice's protocol
+		p, err1 := os.ReadFile(expand(c.Persona))
+		v, err2 := os.ReadFile(expand(c.Voice))
+		if err1 == nil && err2 == nil {
+			path := filepath.Join(filepath.Dir(expand(c.Log)), "charter.md")
+			if os.WriteFile(path, append(append(p, "\n\n"...), v...), 0o644) == nil {
+				dcfg.Charter = path
+			}
+		}
 	}
 	L.Read(ctx, 0, func(e nlog.Event) error {
 		var p dialogue.Prefs
