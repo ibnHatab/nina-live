@@ -237,6 +237,26 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
+	go func() { // the person's distance (sensor.nina_viewer, the panel's radar, when there is one): her loudness
+		last := ""
+		for range time.Tick(2 * time.Second) {
+			raw, err := ha.Call("GET", "/api/states/sensor.nina_viewer", nil)
+			if err != nil {
+				continue // no radar yet
+			}
+			var st struct {
+				Updated    string         `json:"last_updated"`
+				Attributes map[string]any `json:"attributes"`
+			}
+			if json.Unmarshal(raw, &st) != nil || st.Updated == last {
+				continue
+			}
+			last = st.Updated
+			if dist, ok := st.Attributes["distance"].(float64); ok {
+				k.Viewer(dist)
+			}
+		}
+	}()
 	go logDialogue(ctx, d, L, k.Floor)
 	if err := d.StartPlugins(ctx); err != nil {
 		stdlog.Fatal(err)

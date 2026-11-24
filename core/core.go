@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -517,6 +518,20 @@ func (k *Core) Floor(to string) {
 }
 
 // SetVoice gives the core its voice (the dialogue is made after the core: its tools are the core's).
+// Viewer is where the person is (the screen panel's radar: their direction for the face's
+// parallax, on the dashboard; their distance here): her voice's loudness follows the distance,
+// closer quieter (about 0.6 at 0.9 m, 1 at 1.5 m, 1.6 from 2.4 m).
+func (k *Core) Viewer(distance float64) {
+	if distance <= 0 {
+		return
+	}
+	g, ok := k.Voice().(interface{ SetGain(float64) })
+	if !ok {
+		return
+	}
+	g.SetGain(math.Max(.6, math.Min(1.6, distance/1.5)))
+}
+
 func (k *Core) SetVoice(v Voice) {
 	k.mu.Lock()
 	k.voice = v
