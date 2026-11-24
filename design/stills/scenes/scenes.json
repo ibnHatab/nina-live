@@ -1,0 +1,31 @@
+{
+  "_doc": "Nina's domain sequences (design/claudia-look.md, 2026-11-24): a first frame from Claudia's face sheet in the boot logo's look, then edits of it. Made by design/tools/codex-scenes.sh (Codex image generation). AI-generated; Claudia is an open character by anabology (claudia.gallery).",
+  "identity": "She is the woman on the reference sheet in the first image: the same face, a 28-year-old Caucasian American woman, a grown woman, with a grown-up angular face, defined cheekbones and a strong jawline, pale skin and light freckles, a glossy black blunt jaw-length bob with heavy straight bangs and one clay-orange streak through the bangs on her right side, a small flat clay-orange eight-pointed star hair clip above her left ear, a thin headset microphone at her cheek, its tip away from her mouth. She wears an oversized oatmeal cable-knit cardigan over a charcoal ribbed top.",
+  "look": "The light, colour and film grain of the second image: a lived-in flat, warm tungsten lamps and amber light, deep brown shadows, 35mm film still, fine grain. Vertical 4:5 frame, a medium shot, her face clearly visible in the upper half. The picture fills the whole frame edge to edge. No text, no letters, no numbers, no logos anywhere.",
+  "scenes": {
+    "weather": ["She stands beside a handmade paper weather set hung on thin wires: paper clouds, a paper sun, paper raindrops; she points at the paper sun with an open hand, smiling at the viewer like a weather presenter.",
+                "Same frame; now she points at the paper raindrops, her eyebrows raised a little."],
+    "news":    ["Morning: cool white window light. She sits at the kitchen table as if it were a news anchor's desk, a mug of coffee and a stack of folded papers in front of her, squaring the papers with both hands, looking at the viewer.",
+                "Same frame; she has set the papers down and looks up at the viewer, about to speak, a small smile."],
+    "music":   ["Headphones around her neck, she turns the dial of an old wooden radio on a shelf, her ear tilted toward it, listening.",
+                "Same frame; the right station found, she sways a little with her eyes closed, enjoying the music."],
+    "glow":    ["Evening. She holds a round paper lantern in both hands at chest height; it glows cool white and lights her face from below.",
+                "Same frame; the lantern now glows warm orange, the room warmer around her.",
+                "Same frame; the lantern glows a deep ember red, dim; her eyes half closed, sleepy and calm."],
+    "timers":  ["At the kitchen counter she turns over a large glass hourglass; the sand begins to run.",
+                "Same frame; she taps the top of the hourglass with one finger, looking at the viewer as if to say: this one is yours."],
+    "agenda":  ["She pins a blank paper card to a cork board covered in blank paper cards and small pins.",
+                "Same frame; she points at one card on the board and looks at the viewer."],
+    "air":     ["She opens a tall window; a sheer curtain lifts in the draught; cool air, the city at dusk outside.",
+                "Same frame; the curtain falls softly, the window half closed, she rests a hand on its handle."],
+    "habits":  ["She holds an open notebook full of handmade tally marks (short strokes only, no letters or numbers) and adds one more stroke with a pencil.",
+                "Same frame; she nods at the notebook, quietly pleased."],
+    "explain": ["She stands at a cork board where blank paper cards are joined by red string, following the string from one card to the next with her finger, thoughtful.",
+                "Same frame; she turns to the viewer with her finger still on the last card, explaining."],
+    "asks":    ["Her hand hovers over an old brass light switch on the wall; she looks at the viewer, waiting for a yes before she touches it."],
+    "surprise":["She looks at the viewer with one eyebrow raised, both hands open in front of her, palms up, mildly surprised."],
+    "fortune": ["At the kitchen table she cracks open a fortune cookie with both hands.",
+                "Same frame; she holds up the small blank paper slip from the cookie between two fingers.",
+                "Same frame; she reads the blank slip, her eyebrows up, amused."]
+  }
+}

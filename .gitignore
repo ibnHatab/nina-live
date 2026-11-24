@@ -5,3 +5,5 @@ __pycache__/
 runs/
 catalog/domains/*/records/
 catalog/domains/.metis/
+design/stills/scenes/*/*.png
+design/stills/scenes/codex.log
