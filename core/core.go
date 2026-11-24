@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/explain"
 	"github.com/ibnHatab/nina-live/glow"
 	"github.com/ibnHatab/nina-live/habits"
 	nlog "github.com/ibnHatab/nina-live/log"
@@ -60,6 +61,7 @@ type Config struct {
 	Tasks           *tasks.Config     // nil: no System 2 (its Tools, World, Log, Note and Now are filled here)
 	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
 	Agenda          *agenda.Host      // the agenda package's host (writes through Home Assistant); nil when Composed: one that writes nothing
+	Persona         string            // Nina's character (prompts/nina.md's text): the explainer's voice
 	Character       string            // the home's character (default Root/character.yaml): the taste's priors, loaded when it changes
 	Glow            *glow.Host        // the glow package's host (the bedroom light through Alexa); nil when Composed: one that reaches nothing
 	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
@@ -78,7 +80,11 @@ type Core struct {
 	Habits *habits.Host
 	Glow   *glow.Host
 	Taste  *taste.World // the semantic world's taste, as the hosts use it
-	Report world.Report
+	// Explain narrates the inference trace ("why did you do that?", a surprise); nil without tasks
+	Explain *explain.Explainer
+
+	lastSurprise float64
+	Report       world.Report
 
 	mu    sync.Mutex
 	voice Voice
@@ -224,6 +230,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
 		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: "off", Hosts: hosts,
+		OnSurprise:  func(domain string, r map[string]any) { k.surprise(domain, r) },
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
 		return nil, err
@@ -232,6 +239,9 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		return nil, err
 	}
 	k.World.OnOut = func(e semhome.Event, out semhome.Out) {
+		for _, s := range out.Surprises {
+			k.surprise("world", map[string]any{"kind": s.Kind, "key": s.Key, "why": s.Why})
+		}
 		if e.Kind == "settle" {
 			k.project(out.Projected)
 		}
@@ -248,6 +258,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		if k.Tasks, err = tasks.New(tc); err != nil {
 			return nil, err
 		}
+		k.Explain = &explain.Explainer{Log: c.Log, Root: c.Root, Ask: k.Tasks.Ask, Persona: c.Persona, Now: c.Now}
 	}
 	return k, nil
 }
@@ -257,6 +268,61 @@ func (k *Core) timersContext() {
 	if v := k.Voice(); v != nil && k.Timers != nil {
 		v.Context("timers", k.Timers.Summary())
 	}
+}
+
+// surprise is a surprise of the Metis runtime (a domain's) or of the world: in the log (stream
+// surprise), and, at most once every three minutes, narrated with the trace that led to it, as a note.
+func (k *Core) surprise(domain string, r map[string]any) {
+	now := k.Cfg.Now()
+	k.Log.Append(now, "surprise", "surprise", domain, "", r, 1)
+	k.mu.Lock()
+	quiet := k.Explain == nil || now-k.lastSurprise < 180
+	if !quiet {
+		k.lastSurprise = now
+	}
+	k.mu.Unlock()
+	if quiet {
+		return
+	}
+	what, _ := json.Marshal(r)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		text, err := k.Explain.Surprise(ctx, fmt.Sprintf("in %s: %.400s", domain, what))
+		if err != nil || strings.TrimSpace(text) == "" {
+			return
+		}
+		k.Log.Append(k.Cfg.Now(), "surprise", "narrated", domain, "", map[string]string{"text": text}, 1)
+		if v := k.Voice(); v != nil {
+			v.Note("info", text)
+		}
+	}()
+}
+
+// ExplainTool is "explain yourself" as a tool: the voice's and the tasks'.
+func (k *Core) ExplainTool() tasks.Tool {
+	return tasks.Tool{Name: "explain", Domain: "explain",
+		Description: "Explain what the home did and why: the rules each part of the home followed, how one part's decision reached another, what surprised it. Use it when the person asks why something happened, what something means, or to explain yourself.",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{
+			"question": map[string]any{"type": "string", "description": "the person's question, in their words"},
+			"minutes":  map[string]any{"type": "number", "description": "how far back to look (default 10)"}}},
+		Call: func(ctx context.Context, args map[string]any) (string, string) {
+			if k.Explain == nil {
+				return "error", "no model to explain with"
+			}
+			q, _ := args["question"].(string)
+			if q == "" {
+				q = "Explain what you just did and why."
+			}
+			m, _ := args["minutes"].(float64)
+			c, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+			text, err := k.Explain.Explain(c, q, m)
+			if err != nil {
+				return "error", err.Error()
+			}
+			return "done", text
+		}}
 }
 
 // loadCharacter puts the home's character into the world (its priors, its curiosity) when the file

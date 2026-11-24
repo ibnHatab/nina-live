@@ -160,7 +160,11 @@ func main() {
 		_, err := ha.Service(ctx, "script", "alexa_quiet", map[string]any{"commands": commands}, false)
 		return err
 	}}
-	cc := core.Config{Agenda: ag, Music: mu, Glow: gl, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	persona := ""
+	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
+		persona = string(b)
+	}
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
 		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
@@ -188,6 +192,7 @@ func main() {
 	reads := readTools(obs)
 	if k.Tasks != nil {
 		k.Tasks.AddTool(k.Recall())
+		reads = append(reads, k.ExplainTool()) // the voice's and the tasks' (the loop below)
 		for _, t := range reads {
 			k.Tasks.AddTool(t)
 		}

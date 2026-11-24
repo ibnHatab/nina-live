@@ -395,6 +395,20 @@ matching on the last use is just another domain, a cross-domain skill".
   this time of day, the person's words narrowing either (a fuzzy match over the calls' words). The
   rules decide what may be repeated: home commands, scenes, music, timers; never a calendar entry.
 
+### Nina explains herself (2026-11-24, the user's priority)
+
+When high-level domains and tool domains work together there will be inconsistencies; they are
+used, not hidden, by narrating the inference trace (`explain/`). The trace is the log's story:
+the person's requests, each domain's lines (what a rule said when it fired), the director's routing,
+the world's and the Metis runtime's surprises, the tasks. The scripts are the Metis sources of the
+domains in the trace, each rule with its `%%` meaning and what it takes and leaves (the lifted bases
+included). A model (the task runner's: DeepSeek) narrates the chain and names what did not fit.
+Two ways in: the `explain` tool ("why did you do that?", "what does it mean?"), and a surprise,
+narrated by itself with the trace that led to it, at most once every three minutes, as a note.
+First live narration: "The music dropped to a whisper because you set the home to night mode, and
+the music followed. The ventilation did not: the lab unit hasn't confirmed whether it's running, so
+I left it as it was rather than guess."
+
 ### What stays native
 
 Nina keeps her own scheduler and timers: a conditional reminder and an autonomous task must not

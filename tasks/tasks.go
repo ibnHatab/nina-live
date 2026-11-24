@@ -432,3 +432,33 @@ func Key(provider, file string) (string, error) {
 	}
 	return "", fmt.Errorf("tasks: no %s key in %s (pi-ai's names: %v)", provider, file, ai.FindEnvKeys(provider, env))
 }
+
+// Ask is one answer of the model, no tools: a system prompt and a prompt (the explainer's
+// narration of a trace). Logged (stream task, kind ask).
+func (r *Runner) Ask(ctx context.Context, system, prompt string) (string, error) {
+	a := agent.NewAgent(agent.AgentOptions{
+		InitialState: &agent.AgentState{SystemPrompt: system, Model: r.model},
+		GetApiKey:    func(string) string { return r.key },
+		MaxRetries:   4,
+	})
+	err := a.Prompt(ctx, prompt)
+	st := a.State()
+	if err == nil && st.ErrorMessage != "" {
+		err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
+	}
+	out := ""
+	for i := len(st.Messages) - 1; i >= 0; i-- {
+		if st.Messages[i].MessageRole() == ai.RoleAssistant {
+			if s := textOf(st.Messages[i]); strings.TrimSpace(s) != "" {
+				out = strings.TrimSpace(s)
+				break
+			}
+		}
+	}
+	f := map[string]any{"chars": len(prompt), "answer": out}
+	if err != nil {
+		f["error"] = err.Error()
+	}
+	r.log("ask", "", f)
+	return out, err
+}
