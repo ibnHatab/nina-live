@@ -20,7 +20,7 @@ between them.
 | **metis-lang** | the language | `metisc`, `libmetis_rt`, the specs (15: compositions and interface packages; 16: beliefs and levels; 17: images) | — |
 | **metis-agent** | the embedding | a **public** Go package over `internal/rt` (Load, BindWeight, Do, Tick, Host, Counts), and the **Go director tick**: specialists first, then the director, as a Moore latch (`py/metis_agent/service.py` today) | the `metis-home` binary: its parts go to acasa and nina-live |
 | **semantic-world** (metis-worlds `libs/semantic-world/go`) | the world model | `semworld` (generic) + `home` (adapter); **new:** `Apply(Event)`, deterministic replay, a checkpoint hash | its JSON-file `Store` (the log replaces it) |
-| **metis-worlds / metis-catalog** | the domains | the home packages; the director base (catalog); **new:** nina's composition, i.e. the director instance and one specialist per tool family | — |
+| **metis-worlds / metis-catalog** | the shared domains and bases | the director base (catalog); the semantic world's library (metis-worlds `libs/`) | the home world: moved to nina-live `catalog/` with its history (2026-11-24) |
 | **acasa** | the home | the **Home Assistant tool**: the websocket feed, the REST commands (the Prana's one-fan-per-call), the home map, the home host (metis-home's families and views); the home's composition config; the deployment (systemd, HA's compose, `nina.yaml`) | `live/run.sh`'s two services become one |
 
 Dependencies point one way:
