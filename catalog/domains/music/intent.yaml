@@ -30,15 +30,15 @@ spoken:
   examples:
     - ["play some jazz", {"intent":"PLAY","genre":"jazz","words":"some jazz"}, "Jazz it is."]
 map:
-  - {verb: PLAY, atom: "cmd_play({genre:genre})", act: music}
+  - {verb: PLAY, atom: "cmd_play({genre:offer})", act: music}
   - {verb: SOMETHING, atom: "cmd_something", act: music}
   - {verb: AGAIN, atom: "cmd_again", act: music}
-  - {verb: STOP, atom: "cmd_music_off", act: music}
+  - {verb: STOP, atom: "cmd_off", act: music}
   - {verb: LOUDER, atom: "cmd_louder", act: music}
   - {verb: QUIETER, atom: "cmd_quieter", act: music}
-outcomes: {done: done, refused: refused}
+outcomes: {ok: done, no: refused}
 handles:
-  genre:
+  offer:
     jazz: {description: ["jazz", "swing", "blues", "bebop"]}
     classical: {description: ["classical", "classic", "orchestra", "piano", "opera", "baroque"]}
     ambient: {description: ["ambient", "calm", "relaxing", "chill out", "meditation", "sleep"]}
@@ -48,5 +48,5 @@ handles:
     electronic: {description: ["electronic", "techno", "house", "trance", "edm"]}
     news: {description: ["news", "talk", "bbc", "radio news"]}
     world: {description: ["world", "latin", "reggae", "african", "folk"]}
-fallback: {genre: gx}
+fallback: {offer: gx}
 standing: [gx]

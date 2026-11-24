@@ -6,5 +6,5 @@ program: music.llp
 intent: {spec: intent.yaml}
 clock: {beats: 1, period: 1}
 records: records/
-commands: [play, switch, something, something_new, something_else, something_new_genre, again, stop, up, down, duck, unduck, night, away]
+commands: [play, switch, something, something_new, something_else, something_new_one, again, off, up, down, duck, unduck, night, away]
 shared: {scene_music: in}   # the home composition: a scene's wish (iface/home.llp)

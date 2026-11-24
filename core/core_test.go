@@ -18,8 +18,10 @@ import (
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/taste"
 	"github.com/ibnHatab/nina-live/world"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
+	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
 	"github.com/sky-valley/pi/ai"
 	"github.com/sky-valley/pi/ai/providers"
 )
@@ -537,24 +539,24 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": "jazz", "words": "some jazz"})
 	waitFor("jazz playing", func() bool { return lastPlayed() == "http://radio/jazz" })
-	waitHeard(t, r.v, "You kept jazz (jazz FM) on: I'll remember you like it at this time of day")
+	waitHeard(t, r.v, "You kept jazz (jazz FM) on: I'll remember you like it")
 	time.Sleep(300 * time.Millisecond) // the next beat: the favourite asserted
 	learned := 0
 	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
-		if e.Stream == "music" && e.Kind == "learned" {
+		if e.Kind == "prefer" {
 			learned++
 		}
 		return nil
-	}, "music")
+	}, "world")
 	if learned != 1 {
-		t.Fatalf("learned %d times", learned)
+		t.Fatalf("the world's evidence: %d prefer events", learned)
 	}
 	homeCall(t, r.k, "home_music", map[string]any{"intent": "STOP"})
 	t.Logf("something: %s", homeCall(t, r.k, "home_music", map[string]any{"intent": "SOMETHING"}))
-	waitHeard(t, r.v, "Something you like at this time of day: the jazz")
+	waitHeard(t, r.v, "Something you like now: jazz (jazz FM)")
 	time.Sleep(400 * time.Millisecond)
 	homeCall(t, r.k, "home_music", map[string]any{"intent": "SOMETHING"})
-	waitHeard(t, r.v, "Something new for this hour:")
+	waitHeard(t, r.v, "Something new:")
 
 	// the person's own words: kept once, theirs from then on
 	homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": "something for reading", "words": "something calm for reading"})
@@ -580,7 +582,7 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 	r.k.Log.Close()
 	r2 := newRig(t, tasks.All)
 	homeCall(t, r2.k, "home_music", map[string]any{"intent": "SOMETHING"})
-	waitHeard(t, r2.v, "Something you like at this time of day:")
+	waitHeard(t, r2.v, "Something you like now:")
 }
 
 // TestAgainAndTheUsual: "again" repeats the most recent request, the person's words narrowing it
@@ -631,4 +633,45 @@ func TestAgainAndTheUsual(t *testing.T) {
 	// a calendar entry is never repeated
 	homeCall(t, r.k, "home_habits", map[string]any{"intent": "AGAIN", "words": "the bank"})
 	waitHeard(t, r.v, "I won't repeat that")
+}
+
+// TestTheHomesCharacterChoosesFirst: with stations known and nothing said yet, "something" plays
+// what the home's character leans to at this time of day (catalog/character.yaml: news in the
+// morning, lofi in the afternoon, jazz in the evening, ambient at night).
+func TestTheHomesCharacterChoosesFirst(t *testing.T) {
+	var mu sync.Mutex
+	var played []string
+	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if service == "play_media" {
+			played = append(played, data["media_content_id"].(string))
+		}
+		return nil
+	}}
+	defer func() { rigMusic = nil }()
+	r := newRig(t, tasks.All)
+	for _, g := range []string{"news", "lofi", "jazz", "ambient", "rock"} {
+		r.k.Taste.Register(sw.Item{ID: "station:" + g, Kind: "station", Name: g + " FM", Ref: "http://radio/" + g, Tags: []string{g}})
+	}
+	want := map[string]string{"morning": "news", "afternoon": "lofi", "evening": "jazz", "night": "ambient"}[taste.Part(time.Now())]
+	time.Sleep(300 * time.Millisecond) // a beat: the favourite asserted
+	c, ok := r.k.Taste.Select("station", nil, sw.Context{Part: taste.Part(time.Now())}, nil)
+	t.Logf("the taste selects %+v %v; priors %d", c, ok, len(r.k.World.Home.W.Taste.Priors))
+	t.Logf("something: %s", homeCall(t, r.k, "home_music", map[string]any{"intent": "SOMETHING"}))
+	waitHeard(t, r.v, "Something you like now: "+want)
+	for i := 0; i < 30; i++ {
+		mu.Lock()
+		n := len(played)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(played) == 0 || played[0] != "http://radio/"+want {
+		t.Fatalf("the character's choice: %v, want %s", played, want)
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -30,6 +31,7 @@ import (
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/taste"
 	"github.com/ibnHatab/nina-live/timers"
 	"github.com/ibnHatab/nina-live/world"
 	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
@@ -57,6 +59,7 @@ type Config struct {
 	Tasks           *tasks.Config     // nil: no System 2 (its Tools, World, Log, Note and Now are filled here)
 	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
 	Agenda          *agenda.Host      // the agenda package's host (writes through Home Assistant); nil when Composed: one that writes nothing
+	Character       string            // the home's character (default Root/character.yaml): the taste's priors, loaded when it changes
 	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
 	Now             func() float64
 }
@@ -71,6 +74,7 @@ type Core struct {
 	Agenda *agenda.Host
 	Music  *music.Host
 	Habits *habits.Host
+	Taste  *taste.World // the semantic world's taste, as the hosts use it
 	Report world.Report
 
 	mu    sync.Mutex
@@ -96,6 +100,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		c.Levels = map[string]string{"result": "context", "event": "info", "surprise": "info", "error": "context"}
 	}
 	k := &Core{Cfg: c, Log: c.Log, port: port.New(port.Default)}
+	k.Taste = &taste.World{Now: c.Now} // its world is filled in once the world is open
 	var hosts map[string]metishome.HostSpec
 	if c.Timers || c.Composed {
 		var past []timers.Event
@@ -145,8 +150,9 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		if mh == nil {
 			mh = &music.Host{}
 		}
-		fresh := music.New(past) // the taste, the last genres, the person's words: from the log
+		fresh := music.New(past) // the stations played last at each time of day: from the log
 		fresh.Player, fresh.Call, fresh.Search, fresh.Now, fresh.KeepAfter, fresh.SkipWithin = mh.Player, mh.Call, mh.Search, mh.Now, mh.KeepAfter, mh.SkipWithin
+		fresh.Taste = k.Taste // the person's taste: the semantic world's
 		fresh.Save = func(e music.Event) { c.Log.Append(c.Now(), "music", e.Kind, e.Genre, "", e, 1) }
 		k.Music = fresh
 		if hosts == nil {
@@ -197,10 +203,14 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	if len(k.Report.Mismatch) > 0 {
 		c.Log.Append(c.Now(), "sys", "replay_mismatch", "", "", k.Report, 1)
 	}
+	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
 		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: "off", Hosts: hosts,
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
+		return nil, err
+	}
+	if err := k.loadCharacter(ctx); err != nil {
 		return nil, err
 	}
 	k.World.OnOut = func(e semhome.Event, out semhome.Out) {
@@ -229,6 +239,39 @@ func (k *Core) timersContext() {
 	if v := k.Voice(); v != nil && k.Timers != nil {
 		v.Context("timers", k.Timers.Summary())
 	}
+}
+
+// loadCharacter puts the home's character into the world (its priors, its curiosity) when the file
+// differs from the one last loaded (the log's stream character).
+func (k *Core) loadCharacter(ctx context.Context) error {
+	path := k.Cfg.Character
+	if path == "" {
+		path = filepath.Join(k.Cfg.Root, "character.yaml")
+	}
+	ch, err := taste.LoadCharacter(path)
+	if err != nil {
+		if os.IsNotExist(err) && k.Cfg.Character == "" {
+			return nil
+		}
+		return fmt.Errorf("the character: %w", err)
+	}
+	last := ""
+	if e, ok, err := k.Log.Latest(ctx, "character", "loaded"); err == nil && ok {
+		var x struct{ Hash string }
+		if json.Unmarshal(e.Data, &x) == nil {
+			last = x.Hash
+		}
+	}
+	if last == ch.Hash {
+		return nil
+	}
+	for _, ev := range ch.Events(k.Cfg.Now()) {
+		if _, err := k.World.Apply(ev); err != nil {
+			return fmt.Errorf("the character: %w", err)
+		}
+	}
+	k.Log.Append(k.Cfg.Now(), "character", "loaded", "", "", map[string]any{"hash": ch.Hash, "path": path, "priors": len(ch.Priors)}, 1)
+	return nil
 }
 
 // Floor is the voice's floor machine's state (fsttm: USER, SYSTEM, FREEu, FREEs): while anyone

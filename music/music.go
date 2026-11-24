@@ -1,19 +1,23 @@
-// Package music is the music package's host (catalog/domains/music): internet radio on MPD through
-// Home Assistant, and what the rules cannot hold about the person's taste in atoms: which station
-// stands for a genre, which of the person's own words stand for a station, when a station began
-// (so the host can tell a kept station from a skipped one), the volume.
+// Package music is the music package's host (catalog/domains/music, an instance of the taste's
+// lifted rules over genres): internet radio on MPD through Home Assistant.
 //
-// The taste itself is the rules': liked(G, P) tokens, one per time a genre was kept on at a time
-// of day P. The host reads their multiplicity and asserts the favourite and the runner-up of the
-// hour, or a genre never kept at this hour to explore, and says when a station was kept
-// (kept(G), after KeepAfter) or skipped (skipped(G), changed within SkipWithin).
+// The person's taste is the semantic world's (taste.Client): every station played is an item of
+// kind "station" with free tags (its genre, the directory's tags, the person's own words once they
+// kept what the words found); kept (on for KeepAfter) and skipped (left within SkipWithin) are
+// evidence for that very station at this time of day. The host reads the taste each beat and
+// asserts what the lifted rules need: favourite(O) or untasted, runner_up(O) or explore(O),
+// last_here(O); it binds each to its station, and when the rules engage an offer it plays that
+// station (or, for a genre asked by name, the world's select for the genre, the directory when
+// the world knows no station yet).
 //
-// Everything is a log event (stream "music": tuned, learned, forgot, word), so a restart rebuilds
-// the host and re-asserts the rules' tokens and last genres: the taste outlives the process.
+// What is the host's alone (the stations played last at each time of day, the volume) is its log
+// (stream "music"); the taste outlives restarts in the world's snapshots.
 package music
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,24 +26,33 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ibnHatab/nina-live/taste"
+	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
 )
 
-// Genres and Parts are music.llp's types (gx: the person's own words).
+// Genres are music.llp's offers (gx: the person's own words).
 var (
 	Genres   = []string{"jazz", "classical", "ambient", "lofi", "rock", "pop", "electronic", "news", "world"}
-	Parts    = []string{"morning", "afternoon", "evening", "night"}
-	Outcomes = []string{"done", "refused"}
+	Outcomes = []string{"ok", "no"}
 )
 
 // Station is a radio station.
 type Station struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name string   `json:"name"`
+	URL  string   `json:"url"`
+	Tags []string `json:"tags,omitempty"`
+}
+
+// ID is a station's item id in the taste.
+func (s Station) ID() string {
+	h := sha256.Sum256([]byte(s.URL))
+	return "station:" + hex.EncodeToString(h[:6])
 }
 
 // Event is one of the host's log events.
 type Event struct {
-	Kind    string  `json:"kind"` // tuned | learned | forgot | word | stopped
+	Kind    string  `json:"kind"` // tuned
 	Genre   string  `json:"genre,omitempty"`
 	Part    string  `json:"part,omitempty"`
 	Words   string  `json:"words,omitempty"`
@@ -54,23 +67,26 @@ type Host struct {
 	Call func(ctx context.Context, domain, service string, data map[string]any) error
 	// Search finds stations for a genre's tag or the person's words (default: Radio Browser)
 	Search     func(ctx context.Context, tag, words string) ([]Station, error)
+	Taste      taste.Client // the semantic world's taste (nil: a memory of its own)
 	Save       func(Event)
 	Now        func() time.Time
 	KeepAfter  time.Duration // a station on this long is kept (default 10 min)
-	SkipWithin time.Duration // a station changed within this is skipped (default 90 s)
+	SkipWithin time.Duration // a station left within this is skipped (default 90 s)
+	Mood       string        // the mood now ("" none: step 3's director sets it)
 
 	mu       sync.Mutex
-	liked    map[string]int     // "genre|part" → tokens (the rules' multiset, mirrored from the log)
-	last     map[string]string  // part → genre
-	best     map[string]Station // genre → the station kept for it
-	words    map[string]Station // the person's words → the station they meant
-	bad      map[string]bool    // station URLs skipped
-	restored bool
-	asserted map[string]bool // what the host asserts now (to retract on change)
+	last     map[string]Station // part → the station played last at that time of day
+	asserted map[string]bool
+	bindFav  Station // what favourite(O) stands for
+	bindAlt  Station // what runner_up(O) / explore(O) stands for
+	favID    string  // their items' ids
+	altID    string
 	talking  bool
 	vol      float64
 	cur      *current
-	pendSkip string
+	pend     []string // lines for the next beat (skipped)
+	left     *current // the station just left within SkipWithin
+	stations map[string]Station
 }
 
 type current struct {
@@ -82,42 +98,21 @@ type current struct {
 
 // New is the host rebuilt from its log events.
 func New(past []Event) *Host {
-	h := &Host{liked: map[string]int{}, last: map[string]string{}, best: map[string]Station{}, words: map[string]Station{},
-		bad: map[string]bool{}, asserted: map[string]bool{}, vol: 0.3}
+	h := &Host{last: map[string]Station{}, asserted: map[string]bool{}, vol: 0.3, stations: map[string]Station{}}
 	for _, e := range past {
-		h.apply(e)
+		if e.Kind == "tuned" && e.Station.URL != "" {
+			h.last[e.Part] = e.Station
+			h.stations[e.Station.ID()] = e.Station
+		}
 	}
 	return h
 }
 
-func (h *Host) apply(e Event) {
-	switch e.Kind {
-	case "tuned":
-		h.last[e.Part] = e.Genre
-	case "learned":
-		h.liked[e.Genre+"|"+e.Part]++
-		if e.Station.URL != "" {
-			h.best[e.Genre] = e.Station
-			delete(h.bad, e.Station.URL)
-		}
-	case "forgot":
-		if h.liked[e.Genre+"|"+e.Part] > 0 {
-			h.liked[e.Genre+"|"+e.Part]--
-		}
-		if e.Station.URL != "" {
-			h.bad[e.Station.URL] = true
-			if h.best[e.Genre].URL == e.Station.URL {
-				delete(h.best, e.Genre)
-			}
-		}
-	case "word":
-		h.words[norm(e.Words)] = e.Station
-	}
-}
-
 func (h *Host) record(e Event) {
 	e.At = float64(h.now().UnixNano()) / 1e9
-	h.apply(e)
+	if e.Kind == "tuned" {
+		h.last[e.Part] = e.Station
+	}
 	if h.Save != nil {
 		h.Save(e)
 	}
@@ -130,17 +125,11 @@ func (h *Host) now() time.Time {
 	return time.Now()
 }
 
-// Part is the time of day.
-func Part(t time.Time) string {
-	switch hr := t.Hour(); {
-	case hr >= 5 && hr < 12:
-		return "morning"
-	case hr >= 12 && hr < 18:
-		return "afternoon"
-	case hr >= 18 && hr < 23:
-		return "evening"
+func (h *Host) taste() taste.Client {
+	if h.Taste == nil {
+		h.Taste = taste.NewMemory()
 	}
-	return "night"
+	return h.Taste
 }
 
 // Talking is the voice's floor: someone holds it (the person or Nina).
@@ -150,84 +139,100 @@ func (h *Host) Talking(on bool) {
 	h.mu.Unlock()
 }
 
-func key(atom string) string { return strings.ReplaceAll(atom, " ", "") }
+func (h *Host) context() sw.Context {
+	return sw.Context{Part: taste.Part(h.now()), Mood: h.Mood}
+}
 
-// Tick is one beat's world lines.
-func (h *Host) Tick(counts map[string]int) []string {
+// genreOf is a station item's genre: the first of its tags that is a genre ("gx" when none).
+func (h *Host) genreOf(id string) string {
+	it, ok := h.taste().Get(id)
+	if !ok {
+		return "gx"
+	}
+	for _, t := range it.Tags {
+		for _, g := range Genres {
+			if t == g {
+				return g
+			}
+		}
+	}
+	return "gx"
+}
+
+// station is a station item: the host's own, or the world's (its Ref the URL). Holds h.mu.
+func (h *Host) station(id string) (Station, bool) {
+	if s, ok := h.stations[id]; ok {
+		return s, true
+	}
+	if it, ok := h.taste().Get(id); ok && it.Ref != "" {
+		s := Station{Name: it.Name, URL: it.Ref, Tags: it.Tags}
+		h.stations[id] = s
+		return s, true
+	}
+	return Station{}, false
+}
+
+// Tick is one beat's world lines: the taste now, as the lifted rules need it.
+func (h *Host) Tick(map[string]int) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	c := map[string]int{}
-	for k, v := range counts {
-		c[key(k)] = v
-	}
-	var out []string
-	if !h.restored { // the taste and the last genres, back into the rules
-		h.restored = true
-		for k, n := range h.liked {
-			g, p, _ := strings.Cut(k, "|")
-			for i := 0; i < n; i++ {
-				out = append(out, fmt.Sprintf("+liked(%s,%s)", g, p))
-			}
-		}
-		for p, g := range h.last {
-			if g != "jazz" {
-				out = append(out, fmt.Sprintf("-last(jazz,%s)", p), fmt.Sprintf("+last(%s,%s)", g, p))
-			}
-		}
-	}
-	now := h.now()
-	p := Part(now)
-	want := map[string]bool{"part(" + p + ")": true}
+	c := h.context()
+	want := map[string]bool{}
 	if h.talking {
 		want["talking"] = true
 	} else {
 		want["floor_free"] = true
 	}
-	// the hour's favourite and runner-up from the multiset; else a genre to explore
-	type gc struct {
-		g string
-		n int
-	}
-	var ranked []gc
-	for _, g := range Genres {
-		n := c[key(fmt.Sprintf("liked(%s,%s)", g, p))]
-		if n == 0 {
-			n = h.liked[g+"|"+p] // before the restore's lines are in
-		}
-		if n > 0 {
-			ranked = append(ranked, gc{g, n})
-		}
-	}
-	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].n > ranked[j].n })
 	playing := ""
 	if h.cur != nil {
-		playing = h.cur.genre
+		playing = h.cur.station.ID()
 	}
-	if len(ranked) == 0 {
-		want["untasted("+p+")"] = true
-	} else {
-		want[fmt.Sprintf("favourite(%s,%s)", ranked[0].g, p)] = true
+	if fav, ok := h.taste().Select("station", nil, c, nil); ok && !fav.Explored {
+		if s, ok := h.station(fav.ID); ok {
+			h.bindFav, h.favID = s, fav.ID
+			want["favourite("+h.genreOf(fav.ID)+")"] = true
+		}
 	}
-	ru := ""
-	for _, r := range ranked {
-		if r.g != playing {
-			ru = r.g
-			if playing != "" || r.g != ranked[0].g {
-				break
+	if !anyPrefix(want, "favourite(") {
+		want["untasted"] = true
+	}
+	ex := []string{}
+	if playing != "" {
+		ex = append(ex, playing)
+	}
+	if alt, ok := h.taste().Select("station", nil, c, ex); ok {
+		if s, ok := h.station(alt.ID); ok {
+			h.bindAlt, h.altID = s, alt.ID
+			if alt.Explored {
+				want["explore("+h.genreOf(alt.ID)+")"] = true
+			} else {
+				want["runner_up("+h.genreOf(alt.ID)+")"] = true
 			}
 		}
 	}
-	if ru != "" && ru != playing && (len(ranked) > 1 || playing != "") {
-		want[fmt.Sprintf("runner_up(%s,%s)", ru, p)] = true
-	} else {
-		for i := range Genres { // explore: the next genre never kept at this hour, turning with the clock
+	if !anyPrefix(want, "runner_up(") && !anyPrefix(want, "explore(") {
+		// the world knows no other station: a genre none of its stations carries, turning with the clock
+		known := map[string]bool{}
+		for id := range h.stations {
+			known[h.genreOf(id)] = true
+		}
+		now := h.now()
+		for i := range Genres {
 			g := Genres[(now.YearDay()+now.Hour()+i)%len(Genres)]
-			if h.liked[g+"|"+p] == 0 && c[key(fmt.Sprintf("liked(%s,%s)", g, p))] == 0 && g != playing {
-				want[fmt.Sprintf("explore(%s,%s)", g, p)] = true
+			if !known[g] {
+				h.bindAlt, h.altID = Station{Tags: []string{g}}, ""
+				want["explore("+g+")"] = true
 				break
 			}
 		}
 	}
+	lastGenre := "jazz"
+	if s, ok := h.last[c.Part]; ok {
+		lastGenre = h.genreOf(s.ID())
+	}
+	want["last_here("+lastGenre+")"] = true
+
+	var out []string
 	for a := range h.asserted {
 		if !want[a] {
 			out = append(out, "-"+a)
@@ -240,19 +245,23 @@ func (h *Host) Tick(counts map[string]int) []string {
 			h.asserted[a] = true
 		}
 	}
-	// kept and skipped
-	if h.cur != nil && !h.cur.counted && now.Sub(h.cur.at) >= h.keepAfter() {
+	sort.Strings(out)
+	if h.cur != nil && !h.cur.counted && h.now().Sub(h.cur.at) >= h.keepAfter() {
 		h.cur.counted = true
 		out = append(out, "+kept("+h.cur.genre+")")
 	}
-	if h.pendSkip != "" {
-		g := h.pendSkip
-		h.pendSkip = ""
-		if c[key(fmt.Sprintf("liked(%s,%s)", g, p))] > 0 {
-			out = append(out, "+skipped("+g+")")
+	out = append(out, h.pend...)
+	h.pend = nil
+	return out
+}
+
+func anyPrefix(m map[string]bool, p string) bool {
+	for k := range m {
+		if strings.HasPrefix(k, p) {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 func (h *Host) keepAfter() time.Duration {
@@ -285,16 +294,25 @@ func bindings(name string) (string, map[string]string) {
 func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 	rule, b := bindings(name)
 	switch rule {
-	case "play", "switch", "something", "something_new", "something_else", "something_new_genre", "again":
+	case "play", "switch", "something", "something_new", "something_else", "something_new_one", "again":
 		words, _ := payload["words"].(string)
 		if words == "" {
 			words, _ = payload["genre"].(string)
 		}
 		h.mu.Lock()
 		h.leaving()
+		var st Station
+		switch rule {
+		case "something":
+			st = h.bindFav
+		case "something_else", "something_new_one":
+			st = h.bindAlt
+		case "again", "something_new":
+			st = h.last[taste.Part(h.now())]
+		}
 		h.mu.Unlock()
-		go h.tune(b["G"], strings.TrimSpace(words))
-	case "stop", "away":
+		go h.tune(b["O"], strings.TrimSpace(words), st)
+	case "off", "away":
 		h.mu.Lock()
 		h.leaving()
 		h.cur = nil
@@ -322,18 +340,20 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		go h.call("media_player", "volume_set", map[string]any{"volume_level": 0.08})
 	case "learn":
 		h.mu.Lock()
-		e := Event{Kind: "learned", Genre: b["G"], Part: b["P"]}
-		if h.cur != nil && h.cur.genre == b["G"] {
-			e.Station = h.cur.station
-			if h.cur.words != "" { // the person's words, from now on theirs for this station
-				h.record(Event{Kind: "word", Words: h.cur.words, Station: h.cur.station, Genre: b["G"]})
+		if h.cur != nil {
+			id := h.cur.station.ID()
+			if h.cur.words != "" { // the person's words: from now on tags of this station
+				h.taste().Register(sw.Item{ID: id, Kind: "station", Tags: []string{h.cur.words}})
 			}
+			h.taste().Prefer(id, h.context(), 1)
 		}
-		h.record(e)
 		h.mu.Unlock()
 	case "unlearn":
 		h.mu.Lock()
-		h.record(Event{Kind: "forgot", Genre: b["G"], Part: b["P"], Station: h.lastSkipped(b["G"])})
+		if h.left != nil {
+			h.taste().Prefer(h.left.station.ID(), h.context(), -1)
+			h.left = nil
+		}
 		h.mu.Unlock()
 	}
 }
@@ -341,93 +361,74 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 // leaving: the station playing is left; within SkipWithin, it was skipped. Holds h.mu.
 func (h *Host) leaving() {
 	if h.cur != nil && h.now().Sub(h.cur.at) < h.skipWithin() {
-		h.pendSkip = h.cur.genre
-		h.bad[h.cur.station.URL] = true
+		h.left = h.cur
+		h.pend = append(h.pend, "+skipped("+h.cur.genre+")")
 	}
 }
 
-func (h *Host) lastSkipped(g string) Station {
-	for u := range h.bad {
-		if h.best[g].URL == u {
-			return h.best[g]
+// register puts stations into the taste as items (their genre, their tags). Holds h.mu.
+func (h *Host) register(sts []Station, genre string) {
+	for _, s := range sts {
+		h.stations[s.ID()] = s
+		tags := append([]string{}, s.Tags...)
+		if genre != "" && genre != "gx" {
+			tags = append(tags, genre)
 		}
+		h.taste().Register(sw.Item{ID: s.ID(), Kind: "station", Name: s.Name, Ref: s.URL, Tags: tags})
 	}
-	return Station{}
 }
 
-func (h *Host) tune(g, words string) {
+func (h *Host) tune(g, words string, st Station) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	h.mu.Lock()
-	st, ok := Station{}, false
-	if words != "" { // the person's own words first: fuzzy, over what they kept before
-		st, ok = h.match(words)
-	}
-	if !ok && g != "gx" {
-		st, ok = h.best[g], h.best[g].URL != ""
-	}
-	h.mu.Unlock()
-	if !ok {
-		tag, q := g, ""
-		if g == "gx" {
-			tag, q = "", words
+	if st.URL == "" { // asked by name, or a genre the world has no station for yet
+		if len(st.Tags) > 0 {
+			g = st.Tags[0]
 		}
-		search := h.Search
-		if search == nil {
-			search = RadioBrowser
+		var tags []string
+		switch {
+		case g == "gx":
+			tags = []string{words}
+		case g != "":
+			tags = []string{g}
 		}
-		sts, err := search(ctx, tag, q)
 		h.mu.Lock()
-		for _, s := range sts { // a skipped station is demoted, never banned: the best of them when all were
-			if !h.bad[s.URL] {
-				st, ok = s, true
-				break
-			}
-		}
-		if !ok && len(sts) > 0 {
-			st, ok = sts[0], true
+		if c, ok := h.taste().Select("station", tags, h.context(), nil); ok {
+			st, _ = h.station(c.ID)
 		}
 		h.mu.Unlock()
-		if err != nil || !ok {
-			return
+		if st.URL == "" {
+			tag, q := g, ""
+			if g == "gx" || g == "" {
+				tag, q = "", words
+			}
+			search := h.Search
+			if search == nil {
+				search = RadioBrowser
+			}
+			sts, err := search(ctx, tag, q)
+			if err != nil || len(sts) == 0 {
+				return
+			}
+			if len(sts) > 5 {
+				sts = sts[:5]
+			}
+			h.mu.Lock()
+			h.register(sts, g)
+			h.mu.Unlock()
+			st = sts[0]
 		}
 	}
 	h.mu.Lock()
+	if g == "" {
+		g = h.genreOf(st.ID())
+	}
 	h.cur = &current{genre: g, words: words, station: st, at: h.now()}
-	p := Part(h.now())
-	h.record(Event{Kind: "tuned", Genre: g, Part: p, Words: words, Station: st})
+	h.record(Event{Kind: "tuned", Genre: g, Part: taste.Part(h.now()), Words: words, Station: st})
 	v := h.vol
 	h.mu.Unlock()
 	h.call("media_player", "play_media", map[string]any{"media_content_type": "music", "media_content_id": st.URL})
 	h.call("media_player", "volume_set", map[string]any{"volume_level": v})
-}
-
-// match is the person's words against the words they used for a station they kept: the most
-// words in common, at least half of the shorter. Holds h.mu.
-func (h *Host) match(words string) (Station, bool) {
-	ws := strings.Fields(norm(words))
-	var best Station
-	score := 0.0
-	for k, st := range h.words {
-		ks := strings.Fields(k)
-		common := 0
-		for _, w := range ws {
-			for _, x := range ks {
-				if w == x && len(w) > 2 {
-					common++
-					break
-				}
-			}
-		}
-		n := min(len(ws), len(ks))
-		if n == 0 {
-			continue
-		}
-		if s := float64(common) / float64(n); s >= 0.5 && s > score && !h.bad[st.URL] {
-			best, score = st, s
-		}
-	}
-	return best, score > 0
 }
 
 func norm(s string) string {
@@ -454,21 +455,30 @@ func (h *Host) player() string {
 	return "media_player.music_player_daemon"
 }
 
-// Name names a genre in the rules' lines: the person's own words for gx; a time of day as said.
+// Name names an offer in the rules' lines: its station (the one playing, or the one it stands for
+// now), the person's own words for gx.
 func (h *Host) Name(handle string) (string, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if handle == "gx" {
-		if h.cur != nil && h.cur.words != "" {
-			if h.cur.station.Name != "" {
-				return fmt.Sprintf("%q (%s)", h.cur.words, h.cur.station.Name), true
-			}
-			return fmt.Sprintf("%q", h.cur.words), true
+	if h.cur != nil && h.cur.genre == handle {
+		if handle == "gx" && h.cur.words != "" {
+			return fmt.Sprintf("%q (%s)", h.cur.words, h.cur.station.Name), true
 		}
-		return "what you asked for", true
+		if h.cur.station.Name != "" {
+			return fmt.Sprintf("%s (%s)", handle, h.cur.station.Name), true
+		}
 	}
-	if h.cur != nil && h.cur.genre == handle && h.cur.station.Name != "" {
-		return fmt.Sprintf("%s (%s)", handle, h.cur.station.Name), true
+	for i, s := range []Station{h.bindFav, h.bindAlt} {
+		id := []string{h.favID, h.altID}[i]
+		if s.Name != "" && h.genreOf(id) == handle {
+			if handle == "gx" {
+				return s.Name, true
+			}
+			return fmt.Sprintf("%s (%s)", handle, s.Name), true
+		}
+	}
+	if handle == "gx" {
+		return "what you asked for", true
 	}
 	return "", false
 }
@@ -477,14 +487,13 @@ func (h *Host) Name(handle string) (string, bool) {
 // tags. Only the genre or the words are sent.
 func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
 	q := url.Values{"order": {"clickcount"}, "reverse": {"true"}, "hidebroken": {"true"}, "limit": {"10"}}
-	path := "/json/stations/search"
 	if tag != "" {
 		q.Set("tag", tag)
 	} else {
 		q.Set("name", words)
 	}
 	get := func(q url.Values) ([]Station, error) {
-		req, _ := http.NewRequestWithContext(ctx, "GET", "https://de1.api.radio-browser.info"+path+"?"+q.Encode(), nil)
+		req, _ := http.NewRequestWithContext(ctx, "GET", "https://de1.api.radio-browser.info/json/stations/search?"+q.Encode(), nil)
 		req.Header.Set("User-Agent", "nina-live/0")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -494,15 +503,23 @@ func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
 		var xs []struct {
 			Name string `json:"name"`
 			URL  string `json:"url_resolved"`
+			Tags string `json:"tags"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&xs); err != nil {
 			return nil, err
 		}
 		var out []Station
 		for _, x := range xs {
-			if x.URL != "" {
-				out = append(out, Station{strings.TrimSpace(x.Name), x.URL})
+			if x.URL == "" {
+				continue
 			}
+			var tags []string
+			for i, t := range strings.Split(x.Tags, ",") {
+				if t = norm(t); t != "" && i < 6 {
+					tags = append(tags, t)
+				}
+			}
+			out = append(out, Station{strings.TrimSpace(x.Name), x.URL, tags})
 		}
 		return out, nil
 	}
