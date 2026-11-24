@@ -18,6 +18,10 @@ if [ "${1:-}" = "test" ] || [ "${1:-}" = "vet" ]; then
   verb=$1; shift
   exec go "$verb" "${@:-./...}"
 fi
+# the home's composition image (catalog/domains/build/, not committed: image.golden pins its hash)
+METISC="${METISC:-$METIS_LANG_DIR/src/metisc}"
+(cd catalog/domains && "$METISC" build . | grep -E '^(image|result)')
+(cd catalog/domains && [ "$(ls build | grep -o 'v-[0-9a-f]*' | head -1)" = "v-$(cat image.golden)" ]) || { echo "the composition's image is not image.golden's: metisc build . changed it (commit the new hash when meant)" >&2; exit 1; }
 mkdir -p bin
 go build -o bin/nina ./cmd/nina
 echo "built → bin/nina"

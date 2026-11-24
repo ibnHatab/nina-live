@@ -47,6 +47,7 @@ type Config struct {
 		Beat            time.Duration `yaml:"beat"`
 		CheckpointEvery int           `yaml:"checkpoint_every"`
 		CallTimeout     time.Duration `yaml:"call_timeout"`
+		Composed        bool          `yaml:"composed"` // the packages as one composition under the director, on the tick
 	} `yaml:"home"`
 	Hass struct {
 		URL   string `yaml:"url"`
@@ -168,7 +169,12 @@ func main() {
 	var dmu sync.Mutex
 	voice := func() *dialogue.Dialogue { dmu.Lock(); defer dmu.Unlock(); return d }
 	home, err := metishome.Open(metishome.Options{Root: root, Packages: c.Home.Packages, Metisc: expand(c.Home.Metisc),
-		Sem: W.Home, Apply: W.Apply, Device: dev,
+		Sem: W.Home, Apply: W.Apply, Device: dev, Composed: c.Home.Composed,
+		OnTick: func(kind string, f map[string]any) {
+			if kind == "tick-director" || kind == "tick-relay" || kind == "tick-card" || kind == "tick-said" {
+				L.Append(now(), "tick", kind, "", "", f, 1)
+			}
+		},
 		OnReasoning: func(r metishome.Reasoning) {
 			L.Append(now(), "reasoning", r.Kind, r.Domain, "", map[string]string{"line": r.Line, "status": r.Status, "text": r.Text}, 1)
 			if v := voice(); v != nil {
@@ -178,7 +184,7 @@ func main() {
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-	stdlog.Printf("%d packages served (home: %s backend)", len(c.Home.Packages), home.Backend())
+	stdlog.Printf("%d packages served (home: %s backend, composed %v)", len(c.Home.Packages), home.Backend(), c.Home.Composed)
 
 	dd, err := dialogue.New(ctx, dcfg, ev, homeTools(home, c.Home.CallTimeout))
 	if err != nil {

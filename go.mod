@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/ibnHatab/acasa v0.0.0-20261124052352-2d38b271a95d
 	github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70
-	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124052429-6bdbfc5f2e06
+	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124065417-27b6aea3eccd
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261124051101-a735279b0db7
 	google.golang.org/genai v1.79.1
 	gopkg.in/yaml.v3 v3.0.1
