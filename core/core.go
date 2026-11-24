@@ -15,15 +15,19 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	nlog "github.com/ibnHatab/nina-live/log"
+	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/timers"
 	"github.com/ibnHatab/nina-live/world"
 	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
@@ -48,6 +52,7 @@ type Config struct {
 	CallTimeout     time.Duration
 	Levels          map[string]string // a rule's reply kind → context | info | important | urgent | drop
 	Tasks           *tasks.Config     // nil: no System 2 (its Tools, World, Log, Note and Now are filled here)
+	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
 	Now             func() float64
 }
 
@@ -57,11 +62,12 @@ type Core struct {
 	World  *world.World
 	Home   *metishome.Service
 	Tasks  *tasks.Runner
+	Timers *timers.Host
 	Report world.Report
 
 	mu    sync.Mutex
 	voice Voice
-	said  map[string]string // the projected lines last given to the voice
+	port  *port.Port // the world's lines to the voice and the tasks: on a new value or confidence level
 }
 
 // Open builds the core: the world rebuilt from the log, the home's rules on it, the tasks.
@@ -78,7 +84,27 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	if c.Levels == nil {
 		c.Levels = map[string]string{"result": "context", "event": "info", "surprise": "info", "error": "context"}
 	}
-	k := &Core{Cfg: c, Log: c.Log, said: map[string]string{}}
+	k := &Core{Cfg: c, Log: c.Log, port: port.New(port.Default)}
+	var hosts map[string]metishome.HostSpec
+	if c.Timers || c.Composed {
+		var past []timers.Event
+		c.Log.Read(ctx, 0, func(e nlog.Event) error {
+			var te timers.Event
+			if json.Unmarshal(e.Data, &te) == nil {
+				past = append(past, te)
+			}
+			return nil
+		}, "timers")
+		k.Timers = timers.New(c.Now, func(e timers.Event) {
+			c.Log.Append(c.Now(), "timers", e.Kind, "", "", e, 1)
+			go k.timersContext() // the host's lock is held here
+		}, past)
+		hosts = map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return k.Timers }, Outcomes: timers.Outcomes}}
+		if !slices.Contains(c.Packages, "timers") {
+			c.Packages = append(slices.Clone(c.Packages), "timers")
+		}
+		k.Cfg.Packages = c.Packages
+	}
 	var members []world.Member
 	for _, p := range c.Packages {
 		members = append(members, world.Member{Name: p, Manifest: filepath.Join(c.Root, "domains", p, "domain.yaml")})
@@ -93,7 +119,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		c.Log.Append(c.Now(), "sys", "replay_mismatch", "", "", k.Report, 1)
 	}
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
-		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: "off",
+		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: "off", Hosts: hosts,
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
 		return nil, err
@@ -119,11 +145,19 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	return k, nil
 }
 
+// timersContext gives the voice what is set (its silent context, keyed "timers").
+func (k *Core) timersContext() {
+	if v := k.Voice(); v != nil && k.Timers != nil {
+		v.Context("timers", k.Timers.Summary())
+	}
+}
+
 // SetVoice gives the core its voice (the dialogue is made after the core: its tools are the core's).
 func (k *Core) SetVoice(v Voice) {
 	k.mu.Lock()
 	k.voice = v
 	k.mu.Unlock()
+	k.timersContext()
 }
 
 func (k *Core) Voice() Voice {
@@ -199,27 +233,34 @@ func ageWord(s float64) string {
 	return fmt.Sprintf("%.0f d ago", s/86400)
 }
 
-// project gives the voice the world's lines when their words change (the age coarse).
+// project gives the voice, and the tasks that named what they are about, the world's lines when
+// what they say or their confidence's level changes (the quantized port).
 func (k *Core) project(lines []sw.Line) {
 	v := k.Voice()
 	if v == nil {
-		return
+		v = mute{}
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	for _, l := range lines {
-		text := ages.ReplaceAllString(l.Text, ageWord(l.Age))
-		key := l.Stream + "\x00" + l.Key
-		if k.said[key] == text {
+		if changed, _ := k.port.Step(l); !changed { // a new value or confidence level only
 			continue
 		}
-		k.said[key] = text
+		text := ages.ReplaceAllString(l.Text, ageWord(l.Age))
 		if l.Stream == "env" && l.Key != "" {
+			if k.Tasks != nil {
+				k.Tasks.World(text)
+			}
 			text = l.Key + ": " + text
 		}
 		v.Context(l.Key, text)
 	}
 }
+
+type mute struct{}
+
+func (mute) Context(string, string)    {}
+func (mute) Note(string, string) error { return nil }
 
 // WorldLines are the world's environment lines now (a task's TransformContext).
 func (k *Core) WorldLines() []string {

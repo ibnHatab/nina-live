@@ -209,6 +209,22 @@ pi offers hooks; a few are used, and none of them for policy:
 | `AfterToolCall` | **no** | a tool's result already enters Metis as an `in` line, and so the log, by the effector that produced it |
 | `FinishTurn` | later | it could keep a task running while its goal atom is not yet concluded |
 
+How they are used (milestone 3, 2026-11-24):
+
+- **`TransformContext`**: the world's environment lines, as one "HOME now" message before each
+  request, replaced and never piled up.
+- **`Steer`**: a new line of a package the task used (or one the director routed its call to), and
+  a world line about a device the task named, while the task runs. pi picks a steer up at the end of
+  the turn it arrives in, the last one included.
+- **`FollowUp`**: a late outcome of a call answered pending, and a world change about a device
+  whose call the rules refused ("not confirmed yet"). The run goes on past the answer it would
+  have ended with.
+- Both queues are drained whole (`QueueAll`): pi's default of one a turn made a scene's ten lines
+  ten more requests.
+- The world reaches the voice and the tasks through **the quantized port** (`port/`): a line goes
+  on only at a new value or a new confidence level (unsure, likely, sure, with hysteresis), never
+  for its age or wording, so nothing is said twice.
+
 So the gating, the refusals and the approval of a mutating call are **rules in the
 composition**. What the rules don't know, the agent can't do. That is one place to read, one to
 change and one to certify.
@@ -367,4 +383,9 @@ Decided (2026-11-24):
   carry state and messages. No hook holds policy, so `BeforeToolCall` and `AfterToolCall` are
   not used; the rules decide.
 
-Nothing is left to decide for milestone 1.
+- **The tasks' model** goes through pi-ai (`provider` and `model` from its catalog, the key from a
+  key file or an env file under pi-ai's names). The experiments use OpenRouter's Gemini 3.8
+  Flash: the free AI Studio tier's daily quota ended a grid after six runs.
+- **The domains** and the director stay in nina-live's one catalog (`catalog/`): one build, one
+  link. A domain's Go host lives in nina-live too, given to metis-agent by `metishome.Options.Hosts`.
+- **The world's lines** reach the voice and the tasks through the quantized port.

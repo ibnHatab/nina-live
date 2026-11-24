@@ -288,6 +288,7 @@ func TestTheCoresLogRebuildsItsWorld(t *testing.T) {
 	r.faux.SetResponses([]providers.FauxResponseStep{
 		call("home_air", map[string]any{"intent": "ON", "device": "lab ventilation"}),
 		providers.FauxStatic(say("The lab ventilation is on.")),
+		providers.FauxStatic(say("The lab ventilation is on.")), // its confirmation, steered: one more request
 	})
 	wait(t, r.k.Tasks.Delegate("Start the lab ventilation.", "info"))
 	time.Sleep(600 * time.Millisecond) // the device obeys, the feed reads it back, a few beats
@@ -314,4 +315,87 @@ func TestTheCoresLogRebuildsItsWorld(t *testing.T) {
 	if len(rep.Mismatch) != 0 || rep.Checked == 0 || W.Home.Hash() != live {
 		t.Fatalf("the rebuild: %+v (live %s, rebuilt %s)", rep, live, W.Home.Hash())
 	}
+}
+
+func (v *voice) heard(sub string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, s := range append(append([]string{}, v.notes...), v.context...) {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func waitHeard(t *testing.T, v *voice, sub string) {
+	for i := 0; i < 60 && !v.heard(sub); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !v.heard(sub) {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		t.Fatalf("never heard %q: notes %v, context %v", sub, v.notes, v.context)
+	}
+}
+
+func homeCall(t *testing.T, k *Core, tool string, args map[string]any) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	o := k.Home.Call(ctx, tool, args)
+	if o.Status != "done" {
+		t.Fatalf("%s %v: %s %s", tool, args, o.Status, o.Text)
+	}
+	return o.Text
+}
+
+// TestATimerRingsAndAReminderWaitsForTheScene: a countdown set at a word rings when its time has
+// come, named by what it is for; a reminder for leaving waits until the director routes the away
+// scene's wish to the timers.
+func TestATimerRingsAndAReminderWaitsForTheScene(t *testing.T) {
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "SET", "minutes": 0.01, "subject": "check the printer"})
+	waitHeard(t, r.v, "Time's up: check the printer")
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "REMIND", "occasion": "leaving", "subject": "take the keys"})
+	time.Sleep(500 * time.Millisecond)
+	if r.v.heard("Reminder: take the keys") {
+		t.Fatal("the reminder rang before the scene")
+	}
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "AWAY"})
+	waitHeard(t, r.v, "Reminder: take the keys")
+	// the away wish lasted its beat: a reminder for leaving set now waits for the next time
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "REMIND", "occasion": "leaving", "subject": "the bins"})
+	time.Sleep(800 * time.Millisecond)
+	if r.v.heard("Reminder: the bins") {
+		t.Fatal("a stale away wish rang the new reminder")
+	}
+	waitHeard(t, r.v, "timers set: the bins when you leave")
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "QUERY"})
+}
+
+// TestATimerOutlivesARestart: a countdown set before a restart is still set after it (the host
+// rebuilt from the log's timers stream, the rules' slot re-asserted), and the query lists it.
+func TestATimerOutlivesARestart(t *testing.T) {
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "SET", "minutes": 30, "subject": "the oven"})
+	r.stop()
+	time.Sleep(300 * time.Millisecond)
+	root, _ := filepath.Abs("../catalog")
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	k, err := Open(ctx, Config{Log: r.k.Log, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k}, Code: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &voice{}
+	k.SetVoice(v)
+	go k.Run(ctx, 100*time.Millisecond)
+	waitHeard(t, v, "the oven (in 30 min) carries on after a restart")
+	waitHeard(t, v, "timers set: the oven at")
+	if set := k.Timers.Set(); len(set) != 1 || !strings.Contains(set[0], "the oven") {
+		t.Fatalf("after the restart: %v", set)
+	}
+	homeCall(t, k, "home_timers", map[string]any{"intent": "CANCEL"})
+	waitHeard(t, v, "I cancel the oven")
+	waitHeard(t, v, "timers: none set")
 }

@@ -4,7 +4,11 @@
 // Assistant (the units and the lights as states), a device that obeys a command after a delay
 // (the Prana's), the home's composition on its tick, and a pi task per run.
 //
-//	./build.sh exp -root catalog -model gemini-3-flash-preview -scenarios all -conditions none,transform,signals,all
+//	./build.sh exp -scenarios all -conditions none,transform,signals,all
+//	./build.sh exp -provider google -model gemini-3-flash-preview -key ~/.config/fsttm/gemini.key
+//
+// The model is any of pi-ai's (provider and id from its catalog); by default Gemini Flash through
+// OpenRouter, paid per token: the free AI Studio tier's daily quota ends a grid after six runs.
 //
 // Each run is one scenario under one condition (which of the three mechanisms is on); its record
 // (the result, the turns, the calls, what was steered and followed, the time) is a line of -out.
@@ -19,14 +23,23 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/timers"
 	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
+)
+
+const (
+	defProvider = "openrouter"
+	defModel    = "google/gemini-3.8-flash" // the voice's family (Gemini Flash), the newest on OpenRouter
+	defKey      = "~/.config/metis/openrouter.env"
 )
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -41,7 +54,8 @@ type home struct {
 	state  map[string]string // entity → state (the simulated Home Assistant)
 	preset map[string]string
 	r      *tasks.Runner
-	lines  []string // the rules' lines, in order
+	lines  []string   // the rules' lines, in order
+	port   *port.Port // the world's lines to the task: core's quantized port
 }
 
 func (h *home) apply(ev semhome.Event) (semhome.Out, error) {
@@ -90,6 +104,30 @@ func (h *home) Do(kind, role, op string, value any) bool {
 		}
 	}()
 	return true
+}
+
+// changed tells the running task the world lines whose words changed (core.project's, here).
+func (h *home) changed() {
+	h.mu.Lock()
+	ls := h.w.Lines(now())
+	if h.port == nil {
+		h.port = port.New(port.Default)
+	}
+	var ch []string
+	for _, l := range ls {
+		if l.Stream != "env" || l.Key == "" {
+			continue
+		}
+		if changed, _ := h.port.Step(l); changed { // core's quantized port
+			ch = append(ch, ages.ReplaceAllString(l.Text, "recently"))
+		}
+	}
+	h.mu.Unlock()
+	if h.r != nil {
+		for _, c := range ch {
+			h.r.World(c)
+		}
+	}
 }
 
 var ages = regexp.MustCompile(`just now|\d+ (min|h|d) ago`)
@@ -171,18 +209,23 @@ var scenarios = []scenario{
 		}},
 	{Name: "change", Goal: "Start the bedroom ventilation and boost it for a while, then tell me how the bedroom ventilation is now.",
 		During: func(h *home, t *tasks.Task) {
-			// once the first command has been obeyed, someone switches the bedroom unit off at its panel
-			for i := 0; i < 60 && h.state["fan.bedroom_badriom_supply_fan"] != "on"; i++ {
-				time.Sleep(250 * time.Millisecond)
+			// once the start has been obeyed, someone switches the bedroom unit off at its panel: mid-run
+			for i := 0; i < 120 && h.state["fan.bedroom_badriom_supply_fan"] != "on"; i++ {
+				time.Sleep(100 * time.Millisecond)
 			}
-			time.Sleep(h.delay + 300*time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			for _, f := range []string{"supply", "extract"} {
 				h.ha("fan.bedroom_badriom_"+f+"_fan", "off", "")
 			}
 		},
 		Check: func(res string, h *home) []string {
-			if !has(res, "off", "stopped", "switched off", "not running") {
-				return []string{"reports the person's change (off)"}
+			// the answer must agree with the home at the end
+			if h.state["fan.bedroom_badriom_supply_fan"] == "off" {
+				if !has(res, "off", "stopped", "not running") {
+					return []string{"reports the person's change (off)"}
+				}
+			} else if !has(res, "boost", "running") {
+				return []string{"reports it running"}
 			}
 			return nil
 		}},
@@ -197,6 +240,7 @@ var conditions = map[string]tasks.Mechanisms{
 
 type record struct {
 	Scenario, Condition string
+	Model               string
 	Result              string
 	Missing             []string
 	Turns, Calls        int
@@ -213,8 +257,9 @@ const system = `You are Nina's task runner: a goal a person gave Nina, carried o
 func main() {
 	root := flag.String("root", "catalog", "the home's catalog (nina-live/catalog)")
 	metisc := flag.String("metisc", os.Getenv("METISC"), "metis-lang's metisc")
-	model := flag.String("model", "gemini-3-flash-preview", "the Gemini model")
-	key := flag.String("key", "~/.config/fsttm/gemini.key", "the AI Studio key's file")
+	provider := flag.String("provider", defProvider, "pi-ai's provider")
+	model := flag.String("model", defModel, "the model, by its id in pi-ai's catalog")
+	key := flag.String("key", defKey, "the key: a bare key's file, or an env file (OPENROUTER_API_KEY=...)")
 	which := flag.String("scenarios", "all", "scenario names, comma-separated, or all")
 	conds := flag.String("conditions", "none,transform,signals,all", "conditions, comma-separated")
 	delay := flag.Duration("delay", 1500*time.Millisecond, "how long the device takes to obey")
@@ -238,7 +283,7 @@ func main() {
 			if !ok {
 				log.Fatalf("no condition %q", cn)
 			}
-			rec := run(*root, *metisc, *model, *key, *delay, sc, cn, mech)
+			rec := run(*root, *metisc, *provider, *model, *key, *delay, sc, cn, mech)
 			enc.Encode(rec)
 			fmt.Printf("%-7s %-9s turns %d calls %d steered %d followed %d %5.1fs missing %v\n   %s\n", rec.Scenario, rec.Condition,
 				rec.Turns, rec.Calls, rec.Steered, rec.Followed, rec.Seconds, rec.Missing, rec.Result)
@@ -246,15 +291,18 @@ func main() {
 	}
 }
 
-func run(root, metisc, model, key string, delay time.Duration, sc scenario, cn string, mech tasks.Mechanisms) record {
-	rec := record{Scenario: sc.Name, Condition: cn}
+func run(root, metisc, provider, model, key string, delay time.Duration, sc scenario, cn string, mech tasks.Mechanisms) record {
+	rec := record{Scenario: sc.Name, Condition: cn, Model: provider + "/" + model}
 	h, err := newHome(root, delay)
 	if err != nil {
 		rec.Err = err.Error()
 		return rec
 	}
+	tm := timers.New(now, nil, nil)
 	svc, err := metishome.Open(metishome.Options{Root: root, Metisc: metisc, Records: "off", Composed: true,
-		Sem: h.w, Apply: h.apply, Device: h,
+		Packages: append(slices.Clone(metishome.Packages), "timers"),
+		Hosts:    map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return tm }, Outcomes: timers.Outcomes}},
+		Sem:      h.w, Apply: h.apply, Device: h,
 		OnReasoning: func(r metishome.Reasoning) {
 			h.lines = append(h.lines, r.Line)
 			if h.r != nil {
@@ -281,6 +329,7 @@ func run(root, metisc, model, key string, delay time.Duration, sc scenario, cn s
 				return
 			case <-tk.C:
 				svc.Beat()
+				h.changed()
 			}
 		}
 	}()
@@ -298,7 +347,7 @@ func run(root, metisc, model, key string, delay time.Duration, sc scenario, cn s
 				return o.Status, o.Text
 			}})
 	}
-	r, err := tasks.New(tasks.Config{Provider: "google", Model: model, KeyFile: key, System: system, Tools: tools,
+	r, err := tasks.New(tasks.Config{Provider: provider, Model: model, KeyFile: key, System: system, Tools: tools,
 		World: h.world, Mech: mech, MaxTurns: 10, Timeout: 4 * time.Minute})
 	if err != nil {
 		rec.Err = err.Error()
@@ -318,5 +367,12 @@ func run(root, metisc, model, key string, delay time.Duration, sc scenario, cn s
 	}
 	time.Sleep(delay + time.Second) // the last command obeyed, for the check
 	rec.Missing = sc.Check(t.Result, h)
+	if os.Getenv("NINA_EXP_DEBUG") != "" {
+		for _, m := range t.Agent.State().Messages {
+			b, _ := json.Marshal(m)
+			fmt.Fprintf(os.Stderr, "  msg %.300s\n", b)
+		}
+		fmt.Fprintf(os.Stderr, "  world at the end: %v\n  rules' lines: %v\n", h.world(), h.lines)
+	}
 	return rec
 }

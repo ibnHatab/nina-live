@@ -81,6 +81,8 @@ type Task struct {
 	Agent             *agent.Agent
 	used              map[string]bool // the packages it called
 	pending           map[string]bool // its calls answered pending, by package
+	named             map[string]bool // what its calls named (their string arguments, lower case)
+	refusedOn         map[string]bool // … in a call the rules refused (a unit not yet confirmed: worth a retry)
 	Done              chan struct{}
 	Result            string
 	Err               error
@@ -89,16 +91,16 @@ type Task struct {
 }
 
 func New(c Config) (*Runner, error) {
-	b, err := os.ReadFile(expand(c.KeyFile))
-	if err != nil {
-		return nil, fmt.Errorf("tasks: the key: %w", err)
-	}
 	m := c.ModelValue
 	if m == nil {
 		m = ai.GetModel(c.Provider, c.Model)
 	}
 	if m == nil {
 		return nil, fmt.Errorf("tasks: no model %s/%s in pi's catalog", c.Provider, c.Model)
+	}
+	key, err := Key(m.Provider, c.KeyFile)
+	if err != nil {
+		return nil, err
 	}
 	if c.MaxTurns <= 0 {
 		c.MaxTurns = 12
@@ -109,7 +111,7 @@ func New(c Config) (*Runner, error) {
 	if c.Now == nil {
 		c.Now = func() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 	}
-	return &Runner{cfg: c, key: strings.TrimSpace(string(b)), model: m, live: map[string]*Task{}}, nil
+	return &Runner{cfg: c, key: key, model: m, live: map[string]*Task{}}, nil
 }
 
 func (r *Runner) log(kind, key string, data any) {
@@ -129,7 +131,7 @@ func (r *Runner) Delegate(goal, level string) *Task {
 	}
 	r.mu.Lock()
 	r.n++
-	t := &Task{ID: fmt.Sprintf("task%d", r.n), Goal: goal, Level: level, used: map[string]bool{},
+	t := &Task{ID: fmt.Sprintf("task%d", r.n), Goal: goal, Level: level, used: map[string]bool{}, named: map[string]bool{}, refusedOn: map[string]bool{},
 		pending: map[string]bool{}, Done: make(chan struct{})}
 	r.live[t.ID] = t
 	r.mu.Unlock()
@@ -227,11 +229,20 @@ func (r *Runner) tools(t *Task) []agent.AgentTool {
 				}
 				r.mu.Unlock()
 				status, text := tl.Call(ctx, params)
+				r.mu.Lock()
 				if status == "pending" && tl.Domain != "" {
-					r.mu.Lock()
 					t.pending[tl.Domain] = true
-					r.mu.Unlock()
 				}
+				for _, v := range params {
+					if s, ok := v.(string); ok && len(s) > 2 {
+						s = strings.ToLower(s)
+						t.named[s] = true
+						if status == "refused" {
+							t.refusedOn[s] = true
+						}
+					}
+				}
+				r.mu.Unlock()
 				res := agent.AgentToolResult{Content: ai.ContentList{ai.TextContent{Text: status + ": " + text}}}
 				res.IsError = status == "error"
 				return res, nil
@@ -260,6 +271,47 @@ func (r *Runner) Reasoning(domain, kind, line string) {
 			t.Agent.Steer(msg)
 			t.Steered++
 			r.log("steer", t.ID, map[string]any{"line": line})
+		}
+	}
+}
+
+// World is a world line whose words changed ("bedroom ventilation: running (sure, sensor, just
+// now)": what it is about before the colon): steered into the tasks whose calls named it, or
+// followed up into one whose call about it was refused (the rules said "not yet": the change may
+// be what it waited for, so the run goes on past its answer).
+func (r *Runner) World(line string) {
+	subject, _, _ := strings.Cut(line, ":")
+	k := strings.ToLower(strings.TrimSpace(subject))
+	if k == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.live {
+		hit, refused := false, false
+		for n := range t.named {
+			if strings.Contains(n, k) || strings.Contains(k, n) {
+				hit, refused = true, refused || t.refusedOn[n]
+			}
+		}
+		if !hit {
+			continue
+		}
+		msg := user("HOME now (it changed since your call): " + line)
+		switch {
+		case refused && r.cfg.Mech.FollowUp:
+			for n := range t.refusedOn {
+				if strings.Contains(n, k) || strings.Contains(k, n) {
+					delete(t.refusedOn, n)
+				}
+			}
+			t.Agent.FollowUp(msg)
+			t.Followed++
+			r.log("followup", t.ID, map[string]any{"world": line})
+		case r.cfg.Mech.Steer:
+			t.Agent.Steer(msg)
+			t.Steered++
+			r.log("steer", t.ID, map[string]any{"world": line})
 		}
 	}
 }
@@ -346,4 +398,37 @@ func (r *Runner) AddTool(t Tool) {
 	r.mu.Lock()
 	r.cfg.Tools = append(r.cfg.Tools, t)
 	r.mu.Unlock()
+}
+
+// Key is a provider's API key, from pi-ai's names for it (OPENROUTER_API_KEY, GEMINI_API_KEY, ...):
+// file is a bare key (fsttm's gemini.key) or an env file of NAME=value lines (metis's
+// openrouter.env); with no file, the process's environment.
+func Key(provider, file string) (string, error) {
+	env := map[string]string{}
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+	if file != "" {
+		b, err := os.ReadFile(expand(file))
+		if err != nil {
+			return "", fmt.Errorf("tasks: the key: %w", err)
+		}
+		text := strings.TrimSpace(string(b))
+		if !strings.Contains(text, "=") {
+			return text, nil
+		}
+		env = map[string]string{}
+		for _, l := range strings.Split(text, "\n") {
+			l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "export "))
+			if k, v, ok := strings.Cut(l, "="); ok && !strings.HasPrefix(k, "#") {
+				env[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+			}
+		}
+	}
+	if k := ai.GetEnvApiKey(provider, env); k != "" {
+		return k, nil
+	}
+	return "", fmt.Errorf("tasks: no %s key in %s (pi-ai's names: %v)", provider, file, ai.FindEnvKeys(provider, env))
 }

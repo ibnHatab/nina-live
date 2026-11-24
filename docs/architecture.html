@@ -93,7 +93,7 @@ a{color:var(--metis)}
 <div class="wrap">
 <h1>Nina: one log, two reasoning loops</h1>
 <p class="lede">Nina is a personal agent, and speech is one way to reach her. Everything that happens goes into one SQLite event log. The semantic world is rebuilt from that log. Metis reasons over it on its own clock, and pi does the open-ended work. Every tool is a member of one Metis composition.</p>
-<p class="meta">Refactoring step, 24 November 2026 · design, nothing built yet · source: <a href="https://github.com/ibnHatab/nina-live/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a></p>
+<p class="meta">24 November 2026 · milestones 1 and 2 running on Pascal, milestone 3 under way, the first domain catalog · source: <a href="https://github.com/ibnHatab/nina-live/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a></p>
 </div>
 </header>
 
@@ -191,7 +191,7 @@ a{color:var(--metis)}
 </div>
 
 <nav class="scroll" aria-label="sections">
-<a href="#roles">Roles</a><a href="#log">Event log</a><a href="#metis">Metis and pi</a><a href="#flows">Dataflows</a><a href="#facade">fsttm-live facade</a><a href="#layout">Layout</a><a href="#milestones">Milestones</a><a href="#decide">Decisions</a>
+<a href="#roles">Roles</a><a href="#log">Event log</a><a href="#metis">Metis and pi</a><a href="#flows">Dataflows</a><a href="#facade">fsttm-live facade</a><a href="#layout">Layout</a><a href="#milestones">Progress</a><a href="#domains">Domains</a><a href="#experiments">Experiments</a><a href="#decide">Decisions</a>
 </nav>
 
 <main>
@@ -373,29 +373,81 @@ func (d *Dialogue) SetPrefs(Prefs) error</pre>
 
 <section class="band" id="layout" style="padding-top:0"><div class="wrap">
 <h2>nina-live's layout</h2>
-<pre>nina-live/
-├── cmd/nina/               config, log, projections, composition, channels
-├── log/                    SQLite: Append, Read(from), Subscribe; snapshots
-├── world/                  the apply loop; checkpoints; a replay tool
-├── memory/                 episodes (FTS5), recall; prefs; transcripts
-├── metis/                  the image, the director tick, cards → registry
-├── tools/                  one neutral Tool; adapters for genai and pi
-│   └── web/ memory/ tasks/ the specialists' Go effectors
-├── agent/                  pi: one Agent per task; results → notes
-├── tasks/ sched/           tasks; the scheduler (a stream, so replay sees it)
-├── channels/voice web gpio/
-└── domains/nina/           the director instance, specialists, iface/nina.llp</pre>
+<pre>nina-live/                  as built on 24 November
+├── cmd/nina/               the voice (fsttm-live's dialogue) on the core; Home Assistant (acasa's hass)
+├── cmd/nina-exp/           the experiments: scenarios × mechanisms on a simulated home
+├── core/                   the log, the world, the composed home, the tasks, the routing; integration tests
+├── log/                    SQLite: Append, Read(from), Subscribe; episodes (FTS5), Recall
+├── world/                  the apply loop; checkpoints per code and genesis
+├── port/                   the quantized port: a line passed on at a new value or confidence level
+├── tasks/                  System 2 on pi: delegate, TransformContext, Steer, FollowUp; any pi-ai provider
+├── timers/                 the timers package's host: deadlines, subjects; rebuilt from the log
+├── catalog/                the composition: domains/ (the packages, the director), iface/, world/
+└── docs/                   ARCHITECTURE.md, DOMAINS.md, this page</pre>
 <p>acasa supplies <code>hass/</code> (the feed becomes <code>ha_state</code> events, and the REST calls are the home specialists' effectors), <code>home/</code> (metis-home's families and views), and the deployment.</p>
 </div></section>
 
 <section class="band" id="milestones" style="padding-top:0"><div class="wrap">
-<h2>Milestone 1 is today's Nina, rebuilt in the new layout</h2>
+<h2>Two milestones run on Pascal; the third is under way</h2>
 <ol class="ms">
-<li><b>1. Same Nina, new layout</b><code>cmd/nina</code> runs fsttm-live through the facade, with the home packages flat on the embedded runtime and the world built from the log. Passes: the dialog tests, the Prana tests, replay equals live, and a build on the Pi 4 (aarch64). It runs as one service.</li>
-<li><b>2. The director</b>The director runs over the home's packages, with scenes' fan-out as rules. Gemini Live sees two cards, and <code>metisc --link</code> certifies the set.</li>
-<li><b>3. System 2</b>pi runs <code>delegate</code>, with tasks whose results come back as notes. Web and memory become specialists, and the transcripts go in the log.</li>
-<li><b>4. The rest</b>The scheduler arrives, and pi's <code>SKILL.md</code> skills are given programmatically. Calendar and mail become specialists, and MCP serves outside clients.</li>
+<li><b>1. Same Nina, new layout · done</b><code>cmd/nina</code> runs fsttm-live through the facade, the world rebuilt from the log (33,402 events in 0.9 s). One service, <code>acasa-nina</code>. Open: the Pi 4 build, which needs an aarch64 toolchain.</li>
+<li><b>2. The director · running</b>The five home packages run as one composition under the director, on the tick. A scene's three wishes are routed by rules, verified live: "set the home to night mode" reached the lights, the air and the media. Gemini Live keeps all five cards.</li>
+<li><b>3. System 2 · under way</b>pi runs <code>delegate(goal)</code>, and the result comes back as a note. Tasks get the world before every request, their packages' lines by <code>Steer</code>, and late outcomes by <code>FollowUp</code>. The core's integration tests run on pi's faux provider; the experiments run on any pi-ai model. Still to come: memory as a specialist, and web tools.</li>
+<li><b>4. The domains</b>Timers and reminders are the first new domain: the package, its host in nina-live, and the director routing a scene's change to it. Next come music, calendar and weather, then pi's <code>SKILL.md</code> and a <code>steering.yaml</code> per domain.</li>
 </ol>
+</div></section>
+
+<section class="band" id="domains" style="padding-top:0"><div class="wrap">
+<h2>The domains: one composition, the home running and the timers joined</h2>
+<p>Each domain is a Metis package under the director (<code>catalog/domains/</code>), and the full catalog with its encodings is <a href="https://github.com/ibnHatab/nina-live/blob/main/docs/DOMAINS.md">DOMAINS.md</a>. Structured state, lifecycles and constraints sit in the rules, so a Flash model is enough for the words.</p>
+<div class="tbl"><table class="stack">
+<thead><tr><th>World</th><th>Domains</th><th>State</th></tr></thead>
+<tbody>
+<tr><td>Physical</td><td><code>home</code>: lights, air, media, scenes, comfort, under the director</td><td><span class="tag">running</span> the two Prana units through Home Assistant; lights, TV and thermometers not in Home Assistant yet</td></tr>
+<tr><td></td><td>weather, inventory, cooking, shopping, energy, maintenance, pets</td><td>planned (the sun and the Prana's outside sensor are in the world already)</td></tr>
+<tr><td>Personal</td><td><code>timers</code> and reminders</td><td><span class="tag">composed</span> under the director: a countdown rings by name, and a reminder for leaving fires on the away scene. Its host is in nina-live and is rebuilt from the log; tested, not yet tried by voice</td></tr>
+<tr><td></td><td><code>memory</code> (episodic), <code>tasks</code> (System 2)</td><td><span class="tagm">partly</span> the log's FTS5 episodes and <code>recall</code>; pi tasks from <code>delegate</code></td></tr>
+<tr><td></td><td>calendar, commitments, briefing, people, communication, notes, travel, finance</td><td>planned</td></tr>
+<tr><td>Intellectual</td><td>conversation</td><td>the voice's own, with continuity from memory</td></tr>
+<tr><td></td><td>news, interests, projects, research, learning, books, language, games</td><td>planned</td></tr>
+<tr><td>Across</td><td>routines, monitoring, notifications, goals, diagnostics, refinement</td><td>capabilities over the domains: levels per kind today, <code>steering.yaml</code> per domain next</td></tr>
+</tbody></table></div>
+<div class="two">
+<div>
+<h3>Releases</h3>
+<ul>
+<li><b>0.1</b> home, timers, reminders, music: an Alexa replacement. The home runs; the timers are composed.</li>
+<li><b>0.2</b> calendar, to-dos, weather.</li>
+<li><b>0.3</b> semantic memory, interests, news, briefing.</li>
+<li><b>0.4</b> projects, research, books, learning.</li>
+<li><b>0.5 to 0.7</b> the household, proactivity, rules learned from surprises.</li>
+</ul>
+</div>
+<div>
+<h3>The quantized port</h3>
+<p>Every world line carries its confidence <code>P</code>. The port quantizes it into the manifests' levels, unsure below 0.5, likely, and sure from 0.9, with a 0.05 hysteresis. A line goes on to the voice and to the tasks only when its value or its level changes. A belief wavering at a threshold, its age or its wording no longer says the same thing twice (<code>port/</code>).</p>
+</div>
+</div>
+</div></section>
+
+<section class="band" id="experiments" style="padding-top:0"><div class="wrap">
+<h2>Steer is what makes a task's answer complete</h2>
+<p>Each run is one pi task on a simulated home: the real composition and rules, a device that obeys after 1.5 s, and Gemini 3.8 Flash on OpenRouter. The four conditions switch pi's mechanisms on: none; <code>TransformContext</code> alone; <code>Steer</code> and <code>FollowUp</code>; all three. Run on 24 November, with the quantized port.</p>
+<div class="tbl"><table class="stack">
+<thead><tr><th>Scenario</th><th>None</th><th>TransformContext</th><th>Steer, FollowUp</th><th>All three</th></tr></thead>
+<tbody>
+<tr><td>Which units run? Start the lab one in night mode</td><td><span class="tag">pass</span> 7 calls, 27 s</td><td><span class="tag">pass</span> 3 calls, 9 s</td><td><span class="tag">pass</span> 5 calls, 40 s</td><td><span class="tagm">missed</span> 3 calls, 16 s</td></tr>
+<tr><td>Set night mode; what did each part do?</td><td><span class="tag">pass</span> 1 calls, 15 s</td><td><span class="tag">pass</span> 1 calls, 5 s</td><td><span class="tag">pass</span> 1 calls, 17 s</td><td><span class="tag">pass</span> 1 calls, 9 s</td></tr>
+<tr><td>Start and boost the bedroom unit; the person switches it off mid-run</td><td><span class="tag">pass</span> 3 calls, 34 s</td><td><span class="tagm">missed</span> 2 calls, 8 s</td><td><span class="tag">pass</span> 5 calls, 27 s</td><td><span class="tag">pass</span> 2 calls, 13 s</td></tr>
+<tr><td>Total</td><td>11 calls, 76 s</td><td>6 calls, 22 s</td><td>11 calls, 84 s</td><td>6 calls, 38 s</td></tr>
+</tbody></table></div>
+<ul>
+<li><b>The world before each request</b> saves calls: without it the model asked the home seven times for what one line tells, and once claimed a unit ran that was stopped.</li>
+<li><b>Steer</b> is what makes the night scene's answer complete: the lights', air's and TV's own lines arrive, and the task can say what each part did. Without it the check still passed, on the words alone, but the answer said the home "did not report any changes".</li>
+<li><b>A person's change mid-run</b> reaches the task only through the world's lines steered in. With <code>TransformContext</code> alone, the task answered before the change was in its context.</li>
+<li><b>Still open:</b> a call the rules refuse ("not confirmed yet") ends the task with "ask me again". A <code>FollowUp</code> on the confirmation helps when it comes before the end; a task cannot wait yet.</li>
+<li>One run is one sample: the table shows what each mechanism makes possible, not a rate.</li>
+</ul>
 </div></section>
 
 <section class="band" id="decide" style="padding-top:0"><div class="wrap">
@@ -414,8 +466,10 @@ func (d *Dialogue) SetPrefs(Prefs) error</pre>
 <li>The license is the Anti-Capitalist Software License v1.4.</li>
 <li>metis-agent's public embedding package and its Go director tick go on its <code>home-cgo</code> branch.</li>
 <li>pi's <code>Steer</code>, <code>FollowUp</code> and read-only <code>TransformContext</code> carry state and messages. No hook holds policy: the rules decide.</li>
+<li>The tasks' model goes through pi-ai, so any provider works. The experiments use Gemini 3.8 Flash on OpenRouter; the free AI Studio tier's daily quota ended a grid after six runs.</li>
+<li>All the domains and the director stay in nina-live's one catalog, for one build and one link.</li>
+<li>The world reaches the voice and the tasks through a quantized port.</li>
 </ul>
-<p style="margin:10px 0 0;font-size:15px">Nothing is left to decide for milestone 1.</p>
 </div>
 </div>
 <p class="meta" style="margin-top:28px">Facts this rests on, read on 24 November 2026:</p>

@@ -10,13 +10,21 @@ import (
 	"github.com/ibnHatab/nina-live/tasks"
 )
 
-// TestPiOnGemini: one pi run on the AI Studio key with a toy tool (NINA_LIVE_API=1: it calls the API).
-func TestPiOnGemini(t *testing.T) {
+func env(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// TestPiOnABackend: one pi run with a toy tool on the backend's model (NINA_LIVE_API=1: it calls the
+// API; NINA_PROVIDER, NINA_MODEL, NINA_KEY as nina-exp's flags).
+func TestPiOnABackend(t *testing.T) {
 	if os.Getenv("NINA_LIVE_API") == "" {
-		t.Skip("NINA_LIVE_API=1 calls Gemini")
+		t.Skip("NINA_LIVE_API=1 calls the model's API")
 	}
 	called := 0
-	r, err := tasks.New(tasks.Config{Provider: "google", Model: os.Getenv("NINA_MODEL"), KeyFile: "~/.config/fsttm/gemini.key",
+	r, err := tasks.New(tasks.Config{Provider: env("NINA_PROVIDER", defProvider), Model: env("NINA_MODEL", defModel), KeyFile: env("NINA_KEY", defKey),
 		System: "You are a careful home assistant. Use the tools; answer in one sentence.",
 		Tools: []tasks.Tool{{Name: "lab_temperature", Description: "The lab's temperature now, in °C.",
 			Parameters: map[string]any{"type": "object", "properties": map[string]any{}},

@@ -3,7 +3,7 @@
 # over the five, on the tick: `metisc build .`; image.golden pins its hash).
 # METISC: metis-lang's metisc (default: the workspace sibling).
 METISC ?= $(abspath ../../../metis-lang/src/metisc)
-PACKAGES := lights air media scenes comfort
+PACKAGES := lights air media scenes comfort timers
 
 all: $(PACKAGES:%=%/build/image.txt)
 

@@ -18,7 +18,8 @@ model isn't needed for every turn.
 |---|---|---|
 | **Running** | `home` (lights, air, media, scenes, comfort), under the director | composed and on the tick since 2026-11-24 |
 | **Partly** | `memory` (episodic), `tasks` (System 2) | the log's FTS5 episodes, a `recall` tool for tasks; pi tasks from `delegate`. No Metis domain for either yet |
-| **Next** | `time` and `reminders`, `media` (music) | the first of release 0.1 below |
+| **Composed** | `timers` (with reminders for leaving, bedtime, coming back) | under the director, its host in nina-live (metis-agent bf4ba97 takes it, with the call's payload and the handles' names) |
+| **Next** | `media` (music) | the rest of release 0.1 |
 | **Planned** | the rest of the catalog | |
 
 ### Today's home in detail
@@ -56,7 +57,7 @@ gains from symbolic encoding, compared with leaving its reasoning to Flash.
 
 | Domain | What it covers | Metis gain | Priority | State |
 |---|---|---|---|---|
-| `time` | timers, alarms, countdowns | very high | P0 | planned (the scheduler's stream in the log) |
+| `timers` | timers, alarms, countdowns; reminders for when the home goes away, to night, back home | very high | P0 | composed (2026-11-24): `catalog/domains/timers`, its host `timers/` rebuilt from the log; the director routes a scene's change to it; integration-tested, not yet tried by voice |
 | `reminders` | by time, and by condition ("when I go shopping") | very high | P0 | planned |
 | `calendar` | appointments, availability, travel time | very high | P0 | planned |
 | `tasks` | to-dos, priorities, dependencies | very high | P0 | System 2 runs; the to-do domain is planned |
@@ -98,7 +99,7 @@ process or plugin.
 |---|---|---|---|
 | `routines` | morning, evening, contextual sequences | rules plus the scheduler; pi for the open-ended steps | planned |
 | `monitoring` | watching outside conditions and changes | hosts feeding the world | the home's feed only |
-| `notifications` | whether a thing is worth saying, and when | Metis decides whether it is worth saying; FSTTM decides when she may speak | levels per kind today (`nina.yaml` levels); a domain contract planned (below) |
+| `notifications` | whether a thing is worth saying, and when | Metis decides whether it is worth saying; FSTTM decides when she may speak | levels per kind today (`nina.yaml` levels); the world through the quantized port (`port/`: a line passed on at a new value or confidence level); a domain contract planned (below) |
 | `goals`, `opportunities` | long-term objectives; relevant events, products, articles | rules over interests, projects, news | planned |
 | `diagnostics` | finding why something failed or disagrees | the world's surprises plus pi | the semantic world records surprises |
 | `refinement` | new rules learned from surprises | metis-loop's gates; the conversations kept for mining (ARCHITECTURE F7) | the log keeps everything |
@@ -163,6 +164,17 @@ them into the reminders' transitions. No model watches the clock.
 - "Another five minutes."
 - "Remind me to buy batteries when I go shopping." This is a condition: the trigger is a conclusion
   of `shopping`.
+
+**As built (2026-11-24, `catalog/domains/timers/timers.llp`).** Six slots `k1`..`k6`: `free →
+counting | waiting(T, S) → free`, taken by the rules so two timers never share one. The host
+(`timers/`) holds the minutes, the subject and the deadline, which come with the call as its
+payload. It asserts `due(T)` when the time has come, `full` when no slot is free, and `held(T)`
+after a restart; a slot's name in a line is its subject. A reminder waits for a scene: `scenes`
+emits `scene_timers(S)` with its other wishes and the director routes it here, so "remind me to
+take the keys when I leave" fires on the away mode. The voice keeps "timers set: ..." as silent
+context. One stage: a cycle of stage links would spin, so what lasts one beat (a cancel's
+`clearing`, a scene's wish) is retracted by the host on the next. Still to do: "another five
+minutes", alarms at a clock time, a timer named in a cancel.
 
 ### Media
 
