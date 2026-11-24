@@ -6,7 +6,7 @@ catalog director 1.
 provenance text "the home's director: a scene's wishes to the lights, the air and the media" "2026-11-24".
 include "../director_domain.llp".
 
-type domain {lights air media comfort scenes timers}.
+type domain {lights air media comfort scenes timers agenda}.
 type kind {scene_lights scene_air scene_media scene_timers}.
 
 specialist(lights).
@@ -14,6 +14,7 @@ specialist(air).
 specialist(media).
 specialist(comfort).
 specialist(timers).
+specialist(agenda).
 planner(scenes).
 handles(lights, scene_lights).
 handles(air, scene_air).
@@ -28,3 +29,4 @@ handles(timers, scene_timers).
 #init inactive(media) 1
 #init inactive(comfort) 1
 #init inactive(timers) 1
+#init inactive(agenda) 1

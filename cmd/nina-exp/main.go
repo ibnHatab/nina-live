@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/timers"
@@ -300,9 +301,10 @@ func run(root, metisc, provider, model, key string, delay time.Duration, sc scen
 	}
 	tm := timers.New(now, nil, nil)
 	svc, err := metishome.Open(metishome.Options{Root: root, Metisc: metisc, Records: "off", Composed: true,
-		Packages: append(slices.Clone(metishome.Packages), "timers"),
-		Hosts:    map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return tm }, Outcomes: timers.Outcomes}},
-		Sem:      h.w, Apply: h.apply, Device: h,
+		Packages: append(slices.Clone(metishome.Packages), "timers", "agenda"),
+		Hosts: map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return tm }, Outcomes: timers.Outcomes},
+			"agenda": {New: func() metishome.Host { return &agenda.Host{Entities: agenda.Default} }, Outcomes: agenda.Outcomes}},
+		Sem: h.w, Apply: h.apply, Device: h,
 		OnReasoning: func(r metishome.Reasoning) {
 			h.lines = append(h.lines, r.Line)
 			if h.r != nil {

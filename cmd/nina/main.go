@@ -24,6 +24,7 @@ import (
 
 	"github.com/ibnHatab/acasa/hass"
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
+	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/tasks"
@@ -50,7 +51,10 @@ type Config struct {
 	} `yaml:"hass"`
 	Dialogue string            `yaml:"dialogue"`
 	Levels   map[string]string `yaml:"levels"`
-	Tasks    struct {
+	// Agenda: a target handle (catalog/domains/agenda) → its Home Assistant entity (default
+	// agenda.Default: Nina's Google calendar, Google Tasks' list, the local test pair)
+	Agenda map[string]string `yaml:"agenda"`
+	Tasks  struct {
 		Enabled   bool          `yaml:"enabled"`
 		Provider  string        `yaml:"provider"`
 		Model     string        `yaml:"model"`
@@ -134,7 +138,15 @@ func main() {
 		stdlog.Fatal(err)
 	}
 
-	cc := core.Config{Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	ents := agenda.Default
+	if len(c.Agenda) > 0 {
+		ents = c.Agenda
+	}
+	ag := &agenda.Host{Entities: ents, Call: func(ctx context.Context, domain, service string, data map[string]any) error {
+		_, err := ha.Service(ctx, domain, service, data, false)
+		return err
+	}}
+	cc := core.Config{Agenda: ag, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
 		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {

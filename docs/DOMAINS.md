@@ -341,8 +341,8 @@ domain, as the home's commands do: the domain's rules decide, and its host calls
 |---|---|---|---|
 | home, comfort | `light`, `fan`, `switch`, `climate`, `sensor` (Prana, later Zigbee, Matter) | the two Prana units | running (the five packages) |
 | weather | `weather` (Met.no now; Open-Meteo) | `weather.home` (Met.no): now and three days, in the context | the lines; rules to come (weather + calendar) |
-| tasks, shopping | `todo` (Shopping List, Local To-do, Google Tasks) | `todo.shopping_list` | the lines and `lists`; a writing domain next |
-| calendar, reminders | `calendar` (Google Calendar, Local Calendar) | none yet | next: the Google exchange point (below) |
+| tasks, shopping | `todo` (Shopping List, Local To-do, Google Tasks) | Google Tasks `todo.my_tasks`, `todo.shopping_list`, the local test `todo.nina_local` | running: the lines and `lists`; the `agenda` domain adds Nina's to-dos to your tasks |
+| calendar, reminders | `calendar` (Google Calendar, Local Calendar) | Google: your calendar, Birthdays, Holidays, and Nina's own `calendar.nina`; the local test `calendar.nina_local` | running: the lines and `calendar`; the `agenda` domain writes Nina's events on her own calendar |
 | time | `timer`, `schedule` | none in use | Nina's own `timers` stay (her scheduler must not depend on Home Assistant) |
 | media | `media_player` (Music Assistant, Radio Browser) | Radio Browser installed; no player | the lines; the media domain later |
 | people | `person`, `device_tracker` | `person.nina` | the lines |
@@ -368,6 +368,15 @@ what is entered on the phone reaches Nina, both ways, through Google's services.
   client added under Home Assistant's application credentials, then the two integrations added in
   Home Assistant's settings. Nina never sees the password.
 
+**As built (2026-11-24).** Home Assistant's Google Calendar and Google Tasks integrations run
+under the person's Google Cloud project `home-assistant-nina`; Home Assistant's name is
+`homeassistant.local` (the Raspberry Pi's hostname to come). `catalog/domains/agenda` decides where
+Nina may write: her calendar (`calendar.nina`, Google), the person's tasks (`todo.my_tasks`), the
+local test pair; the person's own calendar is read and never written. Its host (`agenda/`) calls
+`calendar.create_event` and `todo.add_item` with the payload (summary, start, minutes, due), marks
+the item "(set by Nina)" and records it in the log (stream `agenda`); a write Home Assistant refuses
+is said. The voice's card is `home_agenda`.
+
 ### What stays native
 
 Nina keeps her own scheduler and timers: a conditional reminder and an autonomous task must not
@@ -380,7 +389,7 @@ notification policy. These are where Nina is more than Home Assistant.
 | Phase | In Home Assistant (the person installs) | In Nina |
 |---|---|---|
 | 1 | — | the class adapters (done: weather, todo, calendar, timer, person, media_player) |
-| 2 | Google Calendar, Google Tasks | the calendar and lists domains, their writes through Metis; reminders mirrored to the phone |
+| 2 | Google Calendar, Google Tasks (done 2026-11-24) | the `agenda` domain (done): events on Nina's calendar, to-dos on your tasks, your calendar refused by the rules; next: the timers' reminders mirrored, items from the phone as the person's reports |
 | 3 | MCP Server | the tools of the rest of Home Assistant to pi, a mutating call checked by the rules |
 | 4 | Music Assistant | media reasoning (sessions, preferences, volume lowered while the person talks) |
 | 5 | Feedreader | news and interests |

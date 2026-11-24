@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibnHatab/nina-live/agenda"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
@@ -53,6 +54,7 @@ type Config struct {
 	Levels          map[string]string // a rule's reply kind → context | info | important | urgent | drop
 	Tasks           *tasks.Config     // nil: no System 2 (its Tools, World, Log, Note and Now are filled here)
 	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
+	Agenda          *agenda.Host      // the agenda package's host (writes through Home Assistant); nil when Composed: one that writes nothing
 	Now             func() float64
 }
 
@@ -63,6 +65,7 @@ type Core struct {
 	Home   *metishome.Service
 	Tasks  *tasks.Runner
 	Timers *timers.Host
+	Agenda *agenda.Host
 	Report world.Report
 
 	mu    sync.Mutex
@@ -106,6 +109,25 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		if !slices.Contains(c.Packages, "timers") {
 			c.Packages = append(slices.Clone(c.Packages), "timers")
 		}
+	}
+	if c.Composed || c.Agenda != nil {
+		ag := c.Agenda
+		if ag == nil {
+			ag = &agenda.Host{Entities: agenda.Default}
+		}
+		if ag.Save == nil {
+			ag.Save = func(w agenda.Write) { c.Log.Append(c.Now(), "agenda", w.Kind, w.Entity, "", w, 1) }
+		}
+		k.Agenda = ag
+		if hosts == nil {
+			hosts = map[string]metishome.HostSpec{}
+		}
+		hosts["agenda"] = metishome.HostSpec{New: func() metishome.Host { return ag }, Outcomes: agenda.Outcomes}
+		if !slices.Contains(c.Packages, "agenda") {
+			c.Packages = append(slices.Clone(c.Packages), "agenda")
+		}
+	}
+	if hosts != nil {
 		k.Cfg.Packages = c.Packages
 	}
 	var members []world.Member
@@ -280,7 +302,7 @@ func (k *Core) Observe(key, line string) {
 // WorldLines are the world's environment lines now (a task's TransformContext), then the
 // integrations' and what the timers hold.
 func (k *Core) WorldLines() []string {
-	var out []string
+	out := []string{"now: " + time.Unix(int64(k.Cfg.Now()), 0).Format("Mon 2 Jan 2006 15:04")}
 	for _, l := range k.World.Home.Lines(k.Cfg.Now()) {
 		if l.Stream == "env" {
 			out = append(out, ages.ReplaceAllString(l.Text, ageWord(l.Age)))

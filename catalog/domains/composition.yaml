@@ -4,7 +4,7 @@
 name: home
 capacity: shared/home_map.llp
 interfaces: [iface/home.llp]
-specialists: [lights, air, media, comfort, scenes, timers]
+specialists: [lights, air, media, comfort, scenes, timers, agenda]
 direct: director
 planner: scenes
 response: 2

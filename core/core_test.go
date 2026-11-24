@@ -6,6 +6,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ibnHatab/nina-live/agenda"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/world"
@@ -61,6 +63,9 @@ func (d device) Do(kind, role, op string, value any) bool {
 	return true
 }
 
+// rigAgenda: the agenda host of the next rig (nil: the default, which writes nothing)
+var rigAgenda *agenda.Host
+
 type rig struct {
 	k     *Core
 	v     *voice
@@ -93,10 +98,14 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	ctx, stop := context.WithCancel(context.Background())
 	r.stop = stop
 	t.Cleanup(stop)
-	k, err := Open(ctx, Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
+	cfg := Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
 		Code: "test", CheckpointEvery: 5,
 		Tasks: &tasks.Config{ModelValue: r.faux.GetModel(), KeyFile: key, System: "test", Mech: mech, MaxTurns: 8,
-			Timeout: 30 * time.Second, Tools: extra}})
+			Timeout: 30 * time.Second, Tools: extra}}
+	if rigAgenda != nil {
+		cfg.Agenda = rigAgenda
+	}
+	k, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,4 +412,56 @@ func TestATimerOutlivesARestart(t *testing.T) {
 	homeCall(t, k, "home_timers", map[string]any{"intent": "CANCEL"})
 	waitHeard(t, v, "I cancel the oven")
 	waitHeard(t, v, "timers: none set")
+}
+
+// TestNinaWritesHerOwnCalendarAndYourTasks: an event goes on Nina's calendar with its time from the
+// payload, a to-do on the person's task list, each marked as hers; an event for the person's own
+// calendar is refused by the rules and never reaches Home Assistant; a write Home Assistant refuses
+// is said.
+func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
+	var mu sync.Mutex
+	var calls []map[string]any
+	fail := false
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if fail {
+			return fmt.Errorf("HTTP 500")
+		}
+		d := map[string]any{"service": domain + "." + service}
+		for k, v := range data {
+			d[k] = v
+		}
+		calls = append(calls, d)
+		return nil
+	}}
+	defer func() { rigAgenda = nil }()
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Dentist", "start": "2026-11-25T10:00", "minutes": 60})
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Buy batteries", "due": "2026-11-27"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if o := r.k.Home.Call(ctx, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Gym", "calendar": "my own calendar"}); o.Status != "refused" {
+		t.Fatalf("the person's calendar: %s %s", o.Status, o.Text)
+	}
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	if len(calls) != 2 {
+		mu.Unlock()
+		t.Fatalf("calls: %v", calls)
+	}
+	ev, td := calls[0], calls[1]
+	mu.Unlock()
+	if ev["service"] != "calendar.create_event" || ev["entity_id"] != "calendar.nina" || ev["start_date_time"] != "2026-11-25 10:00:00" ||
+		ev["end_date_time"] != "2026-11-25 11:00:00" || ev["description"] != agenda.Mark {
+		t.Fatalf("the event: %v", ev)
+	}
+	if td["service"] != "todo.add_item" || td["entity_id"] != "todo.my_tasks" || td["item"] != "Buy batteries" || td["due_date"] != "2026-11-27" {
+		t.Fatalf("the to-do: %v", td)
+	}
+	mu.Lock()
+	fail = true
+	mu.Unlock()
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Call the bank"})
+	waitHeard(t, r.v, "It did not reach your tasks")
 }
