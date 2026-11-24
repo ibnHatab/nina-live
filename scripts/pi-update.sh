@@ -25,6 +25,9 @@ if [ ! -x "$M/metisc" ] || [[ "$moved" == *metis-lang* ]]; then
 fi
 echo "== nina"
 (cd "$R/nina-live" && METISC="$M/metisc" ./build.sh)
+echo "== the radar"
+(cd "$R/fsttm-live" && go build -o bin/radar ./cmd/radar)
+if systemctl --user is-enabled -q nina-radar 2>/dev/null; then systemctl --user restart nina-radar; echo "nina-radar: $(systemctl --user is-active nina-radar)"; fi
 echo "== the look and feel"
 (cd "$R/acasa" && go run ./cmd/ha-ui -config "$HOME/homeassistant/config" 2>&1 | grep -E "dashboard|themes|rror" || true)
 if [ "$KIOSK" = 1 ]; then
