@@ -17,7 +17,7 @@ func TestWritesReachHomeAssistant(t *testing.T) {
 	if os.Getenv("NINA_LIVE_HA") == "" {
 		t.Skip("NINA_LIVE_HA=1 writes to the local test calendar and list")
 	}
-	c, err := hass.New("http://127.0.0.1:8123", "~/.config/fsttm/hass.token")
+	c, err := hass.New("http://homeassistant.local:8123", "~/.config/fsttm/hass.token")
 	if err != nil {
 		t.Fatal(err)
 	}

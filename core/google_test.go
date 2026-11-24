@@ -20,7 +20,7 @@ func TestAReminderReachesTheGoogleCalendar(t *testing.T) {
 	if summary == "" || os.Getenv("METISC") == "" {
 		t.Skip("NINA_LIVE_GOOGLE=<summary> writes to the real Google calendar")
 	}
-	c, err := hass.New("http://127.0.0.1:8123", "~/.config/fsttm/hass.token")
+	c, err := hass.New("http://homeassistant.local:8123", "~/.config/fsttm/hass.token")
 	if err != nil {
 		t.Fatal(err)
 	}
