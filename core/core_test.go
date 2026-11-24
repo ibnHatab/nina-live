@@ -16,6 +16,7 @@ import (
 
 	"github.com/ibnHatab/nina-live/agenda"
 	nlog "github.com/ibnHatab/nina-live/log"
+	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/world"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
@@ -66,6 +67,12 @@ func (d device) Do(kind, role, op string, value any) bool {
 // rigAgenda: the agenda host of the next rig (nil: the default, which writes nothing)
 var rigAgenda *agenda.Host
 
+// rigMusic, rigLog: the music host and the log file of the next rig (zero: the defaults)
+var (
+	rigMusic *music.Host
+	rigLog   string
+)
+
 type rig struct {
 	k     *Core
 	v     *voice
@@ -88,6 +95,9 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	key := filepath.Join(dir, "key")
 	os.WriteFile(key, []byte("faux"), 0o600)
 	r := &rig{v: &voice{}, log: filepath.Join(dir, "nina.db"), extra: extra}
+	if rigLog != "" {
+		r.log = rigLog
+	}
 	r.faux = providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux"})
 	t.Cleanup(r.faux.Unregister)
 	L, err := nlog.Open(r.log)
@@ -105,6 +115,10 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	if rigAgenda != nil {
 		cfg.Agenda = rigAgenda
 	}
+	if rigMusic != nil {
+		cfg.Music = rigMusic
+	}
+
 	k, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -464,4 +478,107 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 	mu.Unlock()
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Call the bank"})
 	waitHeard(t, r.v, "It did not reach your tasks")
+}
+
+// TestTheMusicLearnsThePerson: the music's rules on a fake player and a fake station directory.
+// A station kept on leaves a taste token for this time of day; "something" then plays the
+// favourite; "something" again explores a genre never kept at this hour; the person's own words,
+// once kept, find their station again by fuzzy match; the music ducks while anyone holds the
+// floor and comes back; good night fades it; after a restart the taste is still there.
+func TestTheMusicLearnsThePerson(t *testing.T) {
+	var mu sync.Mutex
+	var played []string
+	var vols []float64
+	fake := &music.Host{KeepAfter: 700 * time.Millisecond, SkipWithin: 300 * time.Millisecond,
+		Call: func(_ context.Context, domain, service string, data map[string]any) error {
+			mu.Lock()
+			defer mu.Unlock()
+			switch service {
+			case "play_media":
+				played = append(played, data["media_content_id"].(string))
+			case "volume_set":
+				vols = append(vols, data["volume_level"].(float64))
+			}
+			return nil
+		},
+		Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+			if tag == "" {
+				tag = "words-" + strings.ReplaceAll(words, " ", "-")
+			}
+			return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
+		}}
+	rigMusic, rigLog = fake, filepath.Join(t.TempDir(), "nina.db")
+	defer func() { rigMusic, rigLog = nil, "" }()
+	lastPlayed := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(played) == 0 {
+			return ""
+		}
+		return played[len(played)-1]
+	}
+	lastVol := func() float64 {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(vols) == 0 {
+			return -1
+		}
+		return vols[len(vols)-1]
+	}
+	waitFor := func(what string, ok func() bool) {
+		for i := 0; i < 60 && !ok(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !ok() {
+			t.Fatalf("never: %s (played %v, volumes %v)", what, played, vols)
+		}
+	}
+
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": "jazz", "words": "some jazz"})
+	waitFor("jazz playing", func() bool { return lastPlayed() == "http://radio/jazz" })
+	waitHeard(t, r.v, "You kept jazz (jazz FM) on: I'll remember you like it at this time of day")
+	time.Sleep(300 * time.Millisecond) // the next beat: the favourite asserted
+	learned := 0
+	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+		if e.Stream == "music" && e.Kind == "learned" {
+			learned++
+		}
+		return nil
+	}, "music")
+	if learned != 1 {
+		t.Fatalf("learned %d times", learned)
+	}
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "STOP"})
+	t.Logf("something: %s", homeCall(t, r.k, "home_music", map[string]any{"intent": "SOMETHING"}))
+	waitHeard(t, r.v, "Something you like at this time of day: the jazz")
+	time.Sleep(400 * time.Millisecond)
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "SOMETHING"})
+	waitHeard(t, r.v, "Something new for this hour:")
+
+	// the person's own words: kept once, theirs from then on
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": "something for reading", "words": "something calm for reading"})
+	waitFor("the words' station", func() bool { return lastPlayed() == "http://radio/words-something-calm-for-reading" })
+	waitHeard(t, r.v, `You kept "something calm for reading"`)
+	time.Sleep(300 * time.Millisecond)
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "STOP"})
+	homeCall(t, r.k, "home_music", map[string]any{"intent": "PLAY", "genre": "the reading one", "words": "calm reading music"})
+	waitFor("the same station by fuzzy words", func() bool { return lastPlayed() == "http://radio/words-something-calm-for-reading" })
+
+	// the floor, and good night
+	r.k.Floor("USER")
+	waitFor("ducked", func() bool { return lastVol() > 0 && lastVol() < 0.15 })
+	r.k.Floor("FREEu")
+	waitFor("back up", func() bool { return lastVol() > 0.25 })
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "NIGHT"})
+	waitFor("a whisper", func() bool { return lastVol() == 0.08 })
+	waitHeard(t, r.v, "Good night: the music fades to a whisper")
+
+	// a restart: the taste is the log's
+	r.stop()
+	time.Sleep(300 * time.Millisecond)
+	r.k.Log.Close()
+	r2 := newRig(t, tasks.All)
+	homeCall(t, r2.k, "home_music", map[string]any{"intent": "SOMETHING"})
+	waitHeard(t, r2.v, "Something you like at this time of day:")
 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/ibnHatab/nina-live/agenda"
 	nlog "github.com/ibnHatab/nina-live/log"
+	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/port"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/timers"
@@ -55,6 +56,7 @@ type Config struct {
 	Tasks           *tasks.Config     // nil: no System 2 (its Tools, World, Log, Note and Now are filled here)
 	Timers          bool              // the timers package (catalog/domains/timers), its host rebuilt from the log (always when Composed: the composition has it)
 	Agenda          *agenda.Host      // the agenda package's host (writes through Home Assistant); nil when Composed: one that writes nothing
+	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
 	Now             func() float64
 }
 
@@ -66,6 +68,7 @@ type Core struct {
 	Tasks  *tasks.Runner
 	Timers *timers.Host
 	Agenda *agenda.Host
+	Music  *music.Host
 	Report world.Report
 
 	mu    sync.Mutex
@@ -127,6 +130,31 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 			c.Packages = append(slices.Clone(c.Packages), "agenda")
 		}
 	}
+	if c.Composed || c.Music != nil {
+		var past []music.Event
+		c.Log.Read(ctx, 0, func(e nlog.Event) error {
+			var me music.Event
+			if json.Unmarshal(e.Data, &me) == nil {
+				past = append(past, me)
+			}
+			return nil
+		}, "music")
+		mh := c.Music
+		if mh == nil {
+			mh = &music.Host{}
+		}
+		fresh := music.New(past) // the taste, the last genres, the person's words: from the log
+		fresh.Player, fresh.Call, fresh.Search, fresh.Now, fresh.KeepAfter, fresh.SkipWithin = mh.Player, mh.Call, mh.Search, mh.Now, mh.KeepAfter, mh.SkipWithin
+		fresh.Save = func(e music.Event) { c.Log.Append(c.Now(), "music", e.Kind, e.Genre, "", e, 1) }
+		k.Music = fresh
+		if hosts == nil {
+			hosts = map[string]metishome.HostSpec{}
+		}
+		hosts["music"] = metishome.HostSpec{New: func() metishome.Host { return fresh }, Outcomes: music.Outcomes}
+		if !slices.Contains(c.Packages, "music") {
+			c.Packages = append(slices.Clone(c.Packages), "music")
+		}
+	}
 	if hosts != nil {
 		k.Cfg.Packages = c.Packages
 	}
@@ -174,6 +202,14 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 func (k *Core) timersContext() {
 	if v := k.Voice(); v != nil && k.Timers != nil {
 		v.Context("timers", k.Timers.Summary())
+	}
+}
+
+// Floor is the voice's floor machine's state (fsttm: USER, SYSTEM, FREEu, FREEs): while anyone
+// holds it, the music's rules duck the music.
+func (k *Core) Floor(to string) {
+	if k.Music != nil {
+		k.Music.Talking(to == "USER" || to == "SYSTEM")
 	}
 }
 

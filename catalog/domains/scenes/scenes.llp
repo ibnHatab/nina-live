@@ -23,7 +23,7 @@ pred welcomed : home.
 
 stage serve {
   %% I switch the home to its {S} mode.
-  scene_set [dyn] : cmd_scene(S) * mode(M) * other(M, S) -o mode(S) * scene_lights(S) * scene_air(S) * scene_media(S) * scene_timers(S) * done(scene).
+  scene_set [dyn] : cmd_scene(S) * mode(M) * other(M, S) -o mode(S) * scene_lights(S) * scene_air(S) * scene_media(S) * scene_timers(S) * scene_music(S) * done(scene).
   %% The home is already in its {S} mode.
   scene_already [dyn] : cmd_scene(S) * $mode(S) -o refused(scene).
 

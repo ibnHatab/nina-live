@@ -31,7 +31,10 @@ func TestAReminderReachesTheGoogleCalendar(t *testing.T) {
 	defer L.Close()
 	var written []agenda.Write
 	ag := &agenda.Host{Entities: agenda.Default, Save: func(w agenda.Write) { written = append(written, w) },
-		Call: func(ctx context.Context, d, s string, data map[string]any) error { _, err := c.Service(ctx, d, s, data, false); return err }}
+		Call: func(ctx context.Context, d, s string, data map[string]any) error {
+			_, err := c.Service(ctx, d, s, data, false)
+			return err
+		}}
 	root, _ := filepath.Abs("../catalog")
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()

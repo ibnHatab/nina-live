@@ -1,0 +1,129 @@
+% Music: internet radio on MPD (through Home Assistant), and a taste that learns. Nina's first
+% domain built to adapt to the person rather than to map commands (the user, 2026-11-24: "think out
+% of the box: rules that capture the person's intent and preferences; fuzzy matching on the last
+% use; the semantic world adapting to the user").
+%
+% The ideas, as linear logic:
+%  - Taste is a multiset. A station kept on long enough (the host: kept(G)) leaves one liked(G, P)
+%    token for the time of day P; a station skipped within a minute and a half (skipped(G)) takes
+%    one back. The affinity is the tokens' multiplicity; nothing is a score, nothing is a counter in
+%    a rule, and the time of day is part of the taste (jazz in the evening, news in the morning).
+%  - "Play something" is the favourite of this hour (the host reads the multiset and asserts it);
+%    with nothing learned yet for it, the last genre of this hour; "again" is exactly that last one.
+%    "Something else" while playing is the runner-up, or, when there is none, a genre never kept at
+%    this hour: asking for something else is how the taste grows.
+%  - The person's own words: a request the card cannot name (gx) is the host's fuzzy search, and
+%    when its station is kept, those words become the person's name for it (the host's vocabulary).
+%  - The floor: while anyone holds it (the person or Nina, fsttm's floor machine) the music is
+%    ducked, and it comes back when the floor is free.
+%  - The director: a scene's wish reaches the music; night fades it to a whisper, away stops it.
+catalog music 1.
+provenance text "music: radio on MPD, a taste learned per time of day, the person's own words, ducked while anyone talks" "2026-11-24".
+layers (dyn).
+stages (serve).
+include "../shared/home_world.llp".
+include "../iface/home.llp".
+
+type genre {jazz classical ambient lofi rock pop electronic news world gx}.   % gx: the person's own words
+type daypart {morning afternoon evening night}.
+type music_act {music}.
+
+pred part(daypart) : home.             % the host: the time of day now (exactly one)
+pred playing(genre) : home.
+pred silent : home.
+pred last(genre, daypart) : home.      % the last genre played at each time of day (exactly one each)
+pred liked(genre, daypart) : home.     % one token per time it was kept on at that time of day
+pred untasted(daypart) : home.         % the host: no liked token at all for this time of day
+pred favourite(genre, daypart) : home. % the host, from the tokens: the most liked now (none when untasted)
+pred runner_up(genre, daypart) : home. % the host: the next most liked, not the one playing
+pred explore(genre, daypart) : home.   % the host, when there is no runner-up: a genre never kept at this hour
+pred kept(genre) : home.               % the host: the station played on long enough to count
+pred skipped(genre) : home.            % the host: changed or stopped within a minute and a half (only when a token is there to take)
+pred talking : home.                   % the host: someone holds the floor
+pred floor_free : home.                % ... and its complement
+pred ducked : home.
+pred unducked : home.
+
+pred cmd_play(genre) : home.           % the person's words in the payload
+pred cmd_something : home.
+pred cmd_again : home.
+pred cmd_music_off : home.
+pred cmd_louder : home.
+pred cmd_quieter : home.
+
+pred done(music_act) : home.
+pred refused(music_act) : home.
+pred tune(genre) : home.
+pred halt : home.
+pred louder : home.
+pred quieter : home.
+pred duck_down : home.
+pred duck_up : home.
+pred whisper : home.
+pred learned(genre, daypart) : home.
+pred forgot(genre, daypart) : home.
+
+stage serve {
+  % ── asking ──
+  %% I put on {G}.
+  play [dyn] : cmd_play(G) * silent * $part(P) * last(G0, P) -o playing(G) * last(G, P) * tune(G) * done(music).
+  %% I switch to {G}.
+  switch [dyn] : cmd_play(G) * playing(G1) * $part(P) * last(G0, P) -o playing(G) * last(G, P) * tune(G) * done(music).
+  %% Something you like at this time of day: {G}.
+  something [dyn] : cmd_something * silent * $part(P) * $favourite(G, P) * last(G0, P) -o playing(G) * last(G, P) * tune(G) * done(music).
+  %% I don't know your taste at this hour yet: {G}, what played last at this time.
+  something_new [dyn] : cmd_something * silent * $part(P) * $untasted(P) * $last(G, P) -o playing(G) * tune(G) * done(music).
+  %% Something else you like at this time of day: {G}.
+  something_else [dyn] : cmd_something * playing(G1) * $part(P) * $runner_up(G, P) * last(G0, P) -o playing(G) * last(G, P) * tune(G) * done(music).
+  %% Something new for this hour: {G}. Keep it on if you like it, and I'll remember.
+  something_new_genre [dyn] : cmd_something * playing(G1) * $part(P) * $explore(G, P) * last(G0, P) -o playing(G) * last(G, P) * tune(G) * done(music).
+  %% {G} again, as last time at this hour.
+  again [dyn] : cmd_again * silent * $part(P) * $last(G, P) -o playing(G) * tune(G) * done(music).
+  %% It is already on.
+  again_on [dyn] : cmd_again * $playing(G) -o refused(music).
+  %% I stop the music.
+  stop [dyn] : cmd_music_off * playing(G) -o silent * halt * done(music).
+  %% Nothing is playing.
+  stop_none [dyn] : cmd_music_off * $silent -o refused(music).
+  %% Louder.
+  up [dyn] : cmd_louder * $playing(G) -o louder * done(music).
+  %% Softer.
+  down [dyn] : cmd_quieter * $playing(G) -o quieter * done(music).
+  %% Nothing is playing.
+  vol_none [dyn] : cmd_louder * $silent -o refused(music).
+  %% Nothing is playing.
+  vol_none2 [dyn] : cmd_quieter * $silent -o refused(music).
+
+  % ── learning the person ──
+  %% You kept {G} on: I'll remember you like it at this time of day.
+  learn [dyn] : kept(G) * $playing(G) * $part(P) -o liked(G, P) * learned(G, P).
+  %% You skipped {G}: one mark less for it at this time of day.
+  unlearn [dyn] : skipped(G) * liked(G, P) * $part(P) -o forgot(G, P).
+  %% {G} counted already.
+  kept_gone [dyn] : kept(G) * $silent -o ().
+
+  % ── the floor: down while anyone talks, back after ──
+  %% Someone is talking: I turn the music down.
+  duck [dyn] : $talking * $playing(G) * unducked -o ducked * duck_down.
+  %% The floor is free: the music comes back up.
+  unduck [dyn] : $floor_free * ducked -o unducked * duck_up.
+  %% The music stopped while ducked.
+  unduck_silent [dyn] : $silent * ducked -o unducked.
+
+  % ── the director: a scene's wish ──
+  %% Good night: the music fades to a whisper.
+  night [dyn] : scene_music(night) * $playing(G) -o whisper.
+  %% Everyone is out: I stop the music.
+  away [dyn] : scene_music(away) * playing(G) -o silent * halt.
+  %% The scene changed; the music was not playing or stays as it is.
+  scene_quiet [dyn] : scene_music(S) * $silent -o ().
+  %% Welcome back: the music stays as it is.
+  scene_home [dyn] : scene_music(home) * $playing(G) -o ().
+}
+
+#init silent 1
+#init unducked 1
+#init last(jazz, morning) 1
+#init last(jazz, afternoon) 1
+#init last(jazz, evening) 1
+#init last(jazz, night) 1

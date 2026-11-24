@@ -128,7 +128,7 @@ func (h *Host) Tick(counts map[string]int) []string {
 			case "counting":
 				out = append(out, "+held("+name+")")
 			case "waiting":
-				out = append(out, fmt.Sprintf("+held_for(%s, %s)", name, s.scene))
+				out = append(out, fmt.Sprintf("+held_for(%s,%s)", name, s.scene))
 			}
 		}
 		if s.state != "" {

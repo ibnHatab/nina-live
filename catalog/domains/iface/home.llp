@@ -10,3 +10,4 @@ pred scene_lights(scene) : home_iface.
 pred scene_air(scene) : home_iface.
 pred scene_media(scene) : home_iface.
 pred scene_timers(scene) : home_iface.
+pred scene_music(scene) : home_iface.

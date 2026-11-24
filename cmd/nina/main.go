@@ -27,6 +27,7 @@ import (
 	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
 	nlog "github.com/ibnHatab/nina-live/log"
+	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	"google.golang.org/genai"
@@ -146,7 +147,11 @@ func main() {
 		_, err := ha.Service(ctx, domain, service, data, false)
 		return err
 	}}
-	cc := core.Config{Agenda: ag, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	mu := &music.Host{Call: func(ctx context.Context, domain, service string, data map[string]any) error {
+		_, err := ha.Service(ctx, domain, service, data, false)
+		return err
+	}}
+	cc := core.Config{Agenda: ag, Music: mu, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
 		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
@@ -200,7 +205,7 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
-	go logDialogue(ctx, d, L)
+	go logDialogue(ctx, d, L, k.Floor)
 	if err := d.StartPlugins(ctx); err != nil {
 		stdlog.Fatal(err)
 	}
@@ -333,7 +338,7 @@ func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 
 // logDialogue writes the dialogue's events to the log (stream dialog) and indexes what was
 // heard and said for recall.
-func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log) {
+func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string)) {
 	ch, cancel := d.Subscribe()
 	defer cancel()
 	for {
@@ -345,6 +350,10 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log) {
 				return
 			}
 			kind, _ := e["ev"].(string)
+			if kind == "floor" && floor != nil {
+				to, _ := e["to"].(string)
+				floor(to)
+			}
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
 			}
