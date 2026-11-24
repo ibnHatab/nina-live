@@ -23,10 +23,10 @@ pred got_cold(room) : home.
 pred got_warm(room) : home.
 pred got_humid(room) : home.
 
-type act {comfort}.
+type comfort_act {comfort}.
 pred cmd_comfort(room) : home.         % a person's question: how is the air in R?
-pred said(act) : home.
-pred refused(act) : home.
+pred said(comfort_act) : home.
+pred refused(comfort_act) : home.
 
 pred advise_air(room) : home.
 pred advise_heater(room) : home.

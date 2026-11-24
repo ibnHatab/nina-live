@@ -54,7 +54,7 @@ OUTCOMES = {                        # per package: the tokens a beat leaves, ret
     "lights": ("done", "refused", "switched", "kept", "missed", "auto_off", "suggest_light"),
     "air": ("done", "refused", "switched", "kept", "missed", "advise_winter", "noted"),
     "media": ("done", "refused", "switched", "kept", "missed", "sent"),
-    "scenes": ("done", "refused", "began", "suggest", "welcomed"),
+    "scenes": ("done", "refused", "scene_lights", "scene_air", "scene_media", "suggest", "welcomed"),
     "comfort": ("advise_air", "advise_heater", "advise_open", "noted", "said", "refused"),
 }
 EVENTS = {                          # per package: the one-beat events it reads

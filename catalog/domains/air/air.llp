@@ -19,9 +19,11 @@ provenance text "ventilation: the recuperators on, off, night or boost, the heat
 layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
-include "which.llp".                  % a unit named without its room: which room? (world/gen_map.py)
+include "../iface/home.llp".
+include "air_which.llp".                  % a unit named without its room: which room? (world/gen_map.py)
+include "air_fan.llp".                  % a scene's wish from the director, one per unit (world/gen_map.py)
 
-type act {on off night boost normal heat winter scene}.
+type air_act {on off night boost normal heat winter scene}.
 
 pred normal_mode(unit) : home.
 pred night_mode(unit) : home.
@@ -50,8 +52,8 @@ pred cmd_winter_off(unit) : home.
 pred sweep_air_off(unit) : home.      % the away scene's wish
 pred sweep_air_night(unit) : home.    % the night scene's wish
 
-pred done(act) : home.
-pred refused(act) : home.
+pred done(air_act) : home.
+pred refused(air_act) : home.
 pred switched(unit) : home.
 pred kept(unit) : home.
 pred missed(unit) : home.

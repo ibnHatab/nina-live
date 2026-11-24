@@ -14,9 +14,11 @@ provenance text "lighting: a light on or off at a person's word or a scene; off 
 layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
-include "which.llp".                  % a light named without its room: which room? (world/gen_map.py)
+include "../iface/home.llp".
+include "lights_which.llp".                  % a light named without its room: which room? (world/gen_map.py)
+include "lights_fan.llp".                % a scene's wish from the director, one per light (world/gen_map.py)
 
-type act {on off scene}.
+type lights_act {on off scene}.
 
 pred light_lit(light) : home.
 pred light_dark(light) : home.
@@ -29,8 +31,8 @@ pred cmd_light_on(light) : home.
 pred cmd_light_off(light) : home.
 pred sweep_off(light) : home.         % a scene's wish, one per light, from the scenes package's host
 
-pred done(act) : home.
-pred refused(act) : home.
+pred done(lights_act) : home.
+pred refused(lights_act) : home.
 pred switched(light) : home.
 pred kept(light) : home.
 pred missed(light) : home.

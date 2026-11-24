@@ -1,6 +1,6 @@
-# the home's images (spec/17 §2, one-member images): the five packages are served side by side, so there is no
-# composition (no director, no tick protocol; metisc refuses a director over go, and metis-home is go): each package
-# links to its own image under <pkg>/build/, and images.golden pins the five hashes (`make golden` writes it again).
+# the home's images: the five one-member images under <pkg>/build/ (served side by side, flat: metis-home's mode;
+# images.golden pins their hashes, `make golden` writes it again) and the composition's under build/ (the director
+# over the five, on the tick: `metisc build .`; image.golden pins its hash).
 # METISC: metis-lang's metisc (default: the workspace sibling).
 METISC ?= $(abspath ../../../metis-lang/src/metisc)
 PACKAGES := lights air media scenes comfort

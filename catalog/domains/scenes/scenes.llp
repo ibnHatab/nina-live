@@ -9,21 +9,21 @@ provenance text "scenes: home, night, away, set at a person's word; away suggest
 layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
+include "../iface/home.llp".
 
-type act {scene}.
+type scenes_act {scene}.
 
 pred mode(scene) : home.
 pred cmd_scene(scene) : home.
 
-pred done(act) : home.
-pred refused(act) : home.
-pred began(scene) : home.             % the host fans it out to the packages
+pred done(scenes_act) : home.
+pred refused(scenes_act) : home.
 pred suggest(scene) : home.
 pred welcomed : home.
 
 stage serve {
   %% I switch the home to its {S} mode.
-  scene_set [dyn] : cmd_scene(S) * mode(M) * other(M, S) -o mode(S) * began(S) * done(scene).
+  scene_set [dyn] : cmd_scene(S) * mode(M) * other(M, S) -o mode(S) * scene_lights(S) * scene_air(S) * scene_media(S) * done(scene).
   %% The home is already in its {S} mode.
   scene_already [dyn] : cmd_scene(S) * $mode(S) -o refused(scene).
 
@@ -34,7 +34,7 @@ stage serve {
   %% Nobody seems to be home, at night: shall I set the home to away?
   suggest_away_night [dyn] : left_home * $mode(night) -o suggest(away).
   %% Welcome home: I set the home back from away.
-  arrive [dyn] : came_home * mode(away) -o mode(home) * began(home) * welcomed.
+  arrive [dyn] : came_home * mode(away) -o mode(home) * welcomed.
   %% Someone came home.
   arrive_home [dyn] : came_home * $mode(home) -o welcomed.
   %% Someone came home at night.

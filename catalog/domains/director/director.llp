@@ -1,0 +1,27 @@
+% director — Nina's home director (nina-live, 2026-11-24): the catalog's lifted base (../director_domain.llp, a
+% byte-equal copy) and this home's instance. The scenes package is the planner: a scene's three wishes arrive as
+% kinds, and each goes to the one package that handles it. The packages run every tick whatever the director says:
+% its wake and sleep are its own bookkeeping (Nina serves all five cards).
+catalog director 1.
+provenance text "the home's director: a scene's wishes to the lights, the air and the media" "2026-11-24".
+include "../director_domain.llp".
+
+type domain {lights air media comfort scenes}.
+type kind {scene_lights scene_air scene_media}.
+
+specialist(lights).
+specialist(air).
+specialist(media).
+specialist(comfort).
+planner(scenes).
+handles(lights, scene_lights).
+handles(air, scene_air).
+handles(media, scene_media).
+
+#init active(scenes) 1
+#init attention(scenes) 1
+#init fresh 1
+#init inactive(lights) 1
+#init inactive(air) 1
+#init inactive(media) 1
+#init inactive(comfort) 1

@@ -6,8 +6,10 @@ provenance text "media: the TV on, off, louder, quieter; infrared devices by the
 layers (dyn).
 stages (serve).
 include "../shared/home_world.llp".
+include "../iface/home.llp".
+include "media_fan.llp".                % a scene's wish from the director, one per TV (world/gen_map.py)
 
-type act {on off volume ir scene}.
+type media_act {on off volume ir scene}.
 type key {power up down}.
 
 pred tv_on(tv) : home.
@@ -24,8 +26,8 @@ pred cmd_tv_quieter(tv) : home.
 pred cmd_ir(irdev, key) : home.
 pred sweep_tv_off(tv) : home.
 
-pred done(act) : home.
-pred refused(act) : home.
+pred done(media_act) : home.
+pred refused(media_act) : home.
 pred switched(tv) : home.
 pred kept(tv) : home.
 pred missed(tv) : home.
