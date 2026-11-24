@@ -14,6 +14,10 @@ RTLIB="$METIS_LANG_DIR/runtime/build"
 cmake --build "$RTLIB" --target metis_rt -j4 > /dev/null
 export CGO_CFLAGS="-I$METIS_LANG_DIR/runtime/c"
 export CGO_LDFLAGS="-L$RTLIB -Wl,-rpath,$RTLIB"
+if [ "${1:-}" = "exp" ]; then        # the experiments (cmd/nina-exp): ./build.sh exp [flags]
+  shift
+  exec go run ./cmd/nina-exp "$@"
+fi
 if [ "${1:-}" = "test" ] || [ "${1:-}" = "vet" ]; then
   verb=$1; shift
   exec go "$verb" "${@:-./...}"

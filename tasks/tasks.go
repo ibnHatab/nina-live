@@ -51,7 +51,8 @@ type Tool struct {
 }
 
 type Config struct {
-	Provider, Model string // google, gemini-3.5-flash
+	Provider, Model string    // google, gemini-3.5-flash
+	ModelValue      *ai.Model // instead of Provider/Model (a test's faux model)
 	KeyFile         string
 	System          string
 	Tools           []Tool
@@ -92,7 +93,10 @@ func New(c Config) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tasks: the key: %w", err)
 	}
-	m := ai.GetModel(c.Provider, c.Model)
+	m := c.ModelValue
+	if m == nil {
+		m = ai.GetModel(c.Provider, c.Model)
+	}
 	if m == nil {
 		return nil, fmt.Errorf("tasks: no model %s/%s in pi's catalog", c.Provider, c.Model)
 	}
@@ -133,6 +137,10 @@ func (r *Runner) Delegate(goal, level string) *Task {
 		InitialState: &agent.AgentState{SystemPrompt: r.cfg.System, Model: r.model, Tools: r.tools(t)},
 		GetApiKey:    func(string) string { return r.key },
 		MaxRetries:   6, // the free tier's 503 "high demand" is transient: pi backs off (Retry-After honoured)
+		// every conclusion queued is delivered at once (pi's default is one a turn: ten package lines would
+		// be ten more requests; found by the core's integration test)
+		SteeringMode: agent.QueueAll,
+		FollowUpMode: agent.QueueAll,
 		TransformContext: func(ctx context.Context, ms []agent.AgentMessage) []agent.AgentMessage {
 			if !r.cfg.Mech.Transform || r.cfg.World == nil {
 				return ms
@@ -319,4 +327,23 @@ func firstLine(s string) string {
 	}
 	l, _, _ := strings.Cut(s, "\n")
 	return l
+}
+
+// Routed: the composition's director forwarded a goal from member from to member to: a task that
+// used from has reached to too (its conclusions are the task's: a scene's wishes reach the packages).
+func (r *Runner) Routed(from, to string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.live {
+		if t.used[from] {
+			t.used[to] = true
+		}
+	}
+}
+
+// AddTool gives the runner's tasks one more tool (from now on).
+func (r *Runner) AddTool(t Tool) {
+	r.mu.Lock()
+	r.cfg.Tools = append(r.cfg.Tools, t)
+	r.mu.Unlock()
 }

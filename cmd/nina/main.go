@@ -1,43 +1,38 @@
-// nina: Nina in one process (milestone 1, ARCHITECTURE.md §7): her voice (fsttm-live's
-// pkg/dialogue), the home's rules (metis-agent's pkg/metishome) on the semantic world, the world
-// rebuilt from her event log (world), Home Assistant as her tool (acasa's hass).
+// nina: Nina in one process: her voice (fsttm-live's pkg/dialogue), and the core (core/: her log,
+// the world rebuilt from it, the home's rules composed under the director, her System 2 on pi),
+// with Home Assistant as her tool (acasa's hass).
 //
 //	nina -config ~/repo/acasa/live/nina.yaml
 //
-// Every change to the world is an event in the log first; the dialogue's events are logged too,
-// and what was said and heard is indexed for recall. pi (System 2) comes in milestone 3.
+// Gemini Live (System 1) has the home's five cards and, with tasks on, delegate(goal): an
+// open-ended goal becomes a pi task (System 2) whose result she says as a NOTE.
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	stdlog "log"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ibnHatab/acasa/hass"
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
+	"github.com/ibnHatab/nina-live/core"
 	nlog "github.com/ibnHatab/nina-live/log"
-	"github.com/ibnHatab/nina-live/world"
-	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
+	"github.com/ibnHatab/nina-live/tasks"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
-	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
 	"google.golang.org/genai"
 	"gopkg.in/yaml.v3"
 )
 
-// Config is nina.yaml: where her memory is, the home's rules, Home Assistant, the dialogue's own
-// config (fsttm-live's YAML: sound, models, attention, preferences, plugins).
+// Config is nina.yaml.
 type Config struct {
 	Log  string `yaml:"log"`
 	Home struct {
@@ -47,14 +42,26 @@ type Config struct {
 		Beat            time.Duration `yaml:"beat"`
 		CheckpointEvery int           `yaml:"checkpoint_every"`
 		CallTimeout     time.Duration `yaml:"call_timeout"`
-		Composed        bool          `yaml:"composed"` // the packages as one composition under the director, on the tick
+		Composed        bool          `yaml:"composed"`
 	} `yaml:"home"`
 	Hass struct {
 		URL   string `yaml:"url"`
 		Token string `yaml:"token"`
 	} `yaml:"hass"`
 	Dialogue string            `yaml:"dialogue"`
-	Levels   map[string]string `yaml:"levels"` // a reasoning kind → context | info | important | urgent | drop
+	Levels   map[string]string `yaml:"levels"`
+	Tasks    struct {
+		Enabled   bool          `yaml:"enabled"`
+		Provider  string        `yaml:"provider"`
+		Model     string        `yaml:"model"`
+		Key       string        `yaml:"key"`
+		Charter   string        `yaml:"charter"`
+		MaxTurns  int           `yaml:"max_turns"`
+		Timeout   time.Duration `yaml:"timeout"`
+		Transform *bool         `yaml:"transform"`
+		Steer     *bool         `yaml:"steer"`
+		FollowUp  *bool         `yaml:"follow_up"`
+	} `yaml:"tasks"`
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -66,6 +73,8 @@ func expand(p string) string {
 	}
 	return p
 }
+
+func on(b *bool) bool { return b == nil || *b }
 
 // code is what computed the world's checkpoints: this build and the semantic world's version.
 func code() string {
@@ -87,6 +96,12 @@ func code() string {
 	return rev
 }
 
+const taskCharter = `You are Nina's task runner: a goal the person gave Nina, carried out with the home's tools and her memory, then answered in two or three short sentences the voice will say.
+- The home's tools ask the home's rules; a refusal says why: believe it, and say it.
+- A message beginning "HOME" is what the home's systems report (their current beliefs, an outcome after your call): use it, never read it out as such.
+- If something you did has not been confirmed yet, say so plainly.
+- Say only what the tools and HOME tell you: what you did and how things are now.`
+
 func main() {
 	cfgPath := flag.String("config", "~/.config/nina/nina.yaml", "nina.yaml")
 	flag.Parse()
@@ -98,23 +113,10 @@ func main() {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		stdlog.Fatalf("%s: %v", *cfgPath, err)
 	}
-	if c.Home.Beat == 0 {
-		c.Home.Beat = time.Second
-	}
-	if c.Home.CallTimeout == 0 {
-		c.Home.CallTimeout = 6 * time.Second
-	}
-	if len(c.Home.Packages) == 0 {
-		c.Home.Packages = metishome.Packages
-	}
-	if c.Levels == nil {
-		c.Levels = map[string]string{"result": "context", "event": "info", "surprise": "info", "error": "context"}
-	}
 	root := expand(c.Home.Root)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// her memory, and the world rebuilt from it
 	if err := os.MkdirAll(filepath.Dir(expand(c.Log)), 0o755); err != nil {
 		stdlog.Fatal(err)
 	}
@@ -123,23 +125,6 @@ func main() {
 		stdlog.Fatal(err)
 	}
 	defer L.Close()
-	var members []world.Member
-	for _, p := range c.Home.Packages {
-		members = append(members, world.Member{Name: p, Manifest: filepath.Join(root, "domains", p, "domain.yaml")})
-	}
-	t0 := time.Now()
-	W, rep, err := world.Open(ctx, L, world.Config{Map: filepath.Join(root, "world", "home.map.json"),
-		Members: members, Code: code(), Every: c.Home.CheckpointEvery, Now: now})
-	if err != nil {
-		stdlog.Fatalf("the world: %v", err)
-	}
-	stdlog.Printf("the world rebuilt from %d events in %.2fs (%d checkpoints checked, %d missed, genesis %v)",
-		rep.Events, time.Since(t0).Seconds(), rep.Checked, len(rep.Mismatch), rep.Genesis)
-	if len(rep.Mismatch) > 0 {
-		L.Append(now(), "sys", "replay_mismatch", "", "", rep, 1)
-	}
-
-	// Home Assistant: the feed and the device
 	m, err := semhome.LoadMap(filepath.Join(root, "world", "home.map.json"))
 	if err != nil {
 		stdlog.Fatal(err)
@@ -148,9 +133,34 @@ func main() {
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-	dev := hass.NewDevice(ha, m)
 
-	// her voice: the dialogue, its preferences from the log
+	cc := core.Config{Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
+		Levels: c.Levels, Now: now}
+	if c.Tasks.Enabled {
+		charter := taskCharter
+		if c.Tasks.Charter != "" {
+			if b, err := os.ReadFile(expand(c.Tasks.Charter)); err == nil {
+				charter = string(b)
+			}
+		}
+		cc.Tasks = &tasks.Config{Provider: c.Tasks.Provider, Model: c.Tasks.Model, KeyFile: c.Tasks.Key, System: charter,
+			MaxTurns: c.Tasks.MaxTurns, Timeout: c.Tasks.Timeout,
+			Mech: tasks.Mechanisms{Transform: on(c.Tasks.Transform), Steer: on(c.Tasks.Steer), FollowUp: on(c.Tasks.FollowUp)}}
+	}
+	t0 := time.Now()
+	k, err := core.Open(ctx, cc)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
+	if k.Tasks != nil {
+		k.Tasks.AddTool(k.Recall())
+	}
+	stdlog.Printf("the world rebuilt from %d events (%d checkpoints checked, %d missed, genesis %v); %s backend, composed %v, tasks %v; %.2fs",
+		k.Report.Events, k.Report.Checked, len(k.Report.Mismatch), k.Report.Genesis, k.Home.Backend(), c.Home.Composed,
+		k.Tasks != nil, time.Since(t0).Seconds())
+
+	// her voice: the dialogue, its preferences from the log, the core's tools (and delegate)
 	dcfg, err := dialogue.LoadConfig(expand(c.Dialogue))
 	if err != nil {
 		stdlog.Fatal(err)
@@ -162,108 +172,62 @@ func main() {
 		}
 		return nil
 	}, "prefs")
-	ev := dialogue.NewEvents(io.Discard)
-
-	// the home's rules, on the world through the log
-	var d *dialogue.Dialogue
-	var dmu sync.Mutex
-	voice := func() *dialogue.Dialogue { dmu.Lock(); defer dmu.Unlock(); return d }
-	home, err := metishome.Open(metishome.Options{Root: root, Packages: c.Home.Packages, Metisc: expand(c.Home.Metisc),
-		Sem: W.Home, Apply: W.Apply, Device: dev, Composed: c.Home.Composed,
-		OnTick: func(kind string, f map[string]any) {
-			if kind == "tick-director" || kind == "tick-relay" || kind == "tick-card" || kind == "tick-said" {
-				L.Append(now(), "tick", kind, "", "", f, 1)
-			}
-		},
-		OnReasoning: func(r metishome.Reasoning) {
-			L.Append(now(), "reasoning", r.Kind, r.Domain, "", map[string]string{"line": r.Line, "status": r.Status, "text": r.Text}, 1)
-			if v := voice(); v != nil {
-				route(v, c.Levels, r)
-			}
-		}})
+	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k))
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-	stdlog.Printf("%d packages served (home: %s backend, composed %v)", len(c.Home.Packages), home.Backend(), c.Home.Composed)
-
-	dd, err := dialogue.New(ctx, dcfg, ev, homeTools(home, c.Home.CallTimeout))
-	if err != nil {
-		stdlog.Fatal(err)
-	}
-	dmu.Lock()
-	d = dd
-	dmu.Unlock()
 	d.SavePrefs = func(p dialogue.Prefs) error {
 		_, err := L.Append(now(), "prefs", "set", "", "", p, 1)
 		return err
 	}
+	k.SetVoice(d)
 	go logDialogue(ctx, d, L)
-	proj := &projector{said: map[string]string{}}
-	W.OnOut = func(e semhome.Event, out semhome.Out) {
-		if e.Kind == "settle" {
-			proj.step(d, out.Projected)
-		}
-	}
 	if err := d.StartPlugins(ctx); err != nil {
 		stdlog.Fatal(err)
 	}
 	go func() {
-		if err := ha.Follow(ctx, W.Apply, now); err != nil {
+		if err := ha.Follow(ctx, k.World.Apply, now); err != nil {
 			stdlog.Printf("[hass] %v: the world gets no readings", err)
 		}
 	}()
-	go func() {
-		tk := time.NewTicker(c.Home.Beat)
-		defer tk.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-tk.C:
-				home.Beat()
-			}
-		}
-	}()
-	L.Append(now(), "sys", "start", "", "", map[string]any{"code": code(), "replay": rep}, 1)
+	go k.Run(ctx, c.Home.Beat)
+	L.Append(now(), "sys", "start", "", "", map[string]any{"code": code(), "replay": k.Report}, 1)
 	if err := d.Run(ctx); err != nil {
 		stdlog.Printf("the dialogue: %v", err)
 	}
-	W.Checkpoint(now())
 	L.Append(now(), "sys", "stop", "", "", nil, 1)
 }
 
-// homeTools are the home's packages as the voice session's tools.
-func homeTools(home *metishome.Service, timeout time.Duration) dialogue.Tools {
+// voiceTools are Gemini Live's: the home's cards and, with tasks, delegate.
+func voiceTools(k *core.Core) dialogue.Tools {
 	var decls []*genai.FunctionDeclaration
 	funcs := map[string]dialogue.ToolFunc{}
-	for _, t := range home.Tools() {
-		name := t.Function.Name
-		decls = append(decls, &genai.FunctionDeclaration{Name: name, Description: t.Function.Description,
-			ParametersJsonSchema: t.Function.Parameters})
-		funcs[name] = func(ctx context.Context, args map[string]any) map[string]any {
-			cctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-			o := home.Call(cctx, name, args)
-			return map[string]any{"status": o.Status, "text": o.Text}
+	for _, t := range k.HomeTools() {
+		t := t
+		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
+		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
+			status, text := t.Call(ctx, args)
+			return map[string]any{"status": status, "text": text}
+		}
+	}
+	if k.Tasks != nil {
+		decls = append(decls, &genai.FunctionDeclaration{Name: "delegate",
+			Description: "Hand an open-ended goal to Nina's task runner: something that takes several steps, " +
+				"checking things or doing them in order, or remembering what was said before. It answers at once; " +
+				"the result comes later as a note. Not for a single command a home tool does by itself.",
+			ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"goal": map[string]any{"type": "string", "description": "the goal, in the person's terms, complete"}},
+				"required": []any{"goal"}}})
+		funcs["delegate"] = func(_ context.Context, args map[string]any) map[string]any {
+			goal, _ := args["goal"].(string)
+			if strings.TrimSpace(goal) == "" {
+				return map[string]any{"status": "error", "text": "a goal is needed"}
+			}
+			t := k.Tasks.Delegate(goal, "important")
+			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}
 	}
 	return dialogue.Tools{Decls: []*genai.Tool{{FunctionDeclarations: decls}}, Funcs: funcs}
-}
-
-// route: a reasoning line by its kind's level: context (she knows it, says nothing), a NOTE
-// (info, important, urgent: the floor and the knob decide), or dropped.
-func route(d *dialogue.Dialogue, levels map[string]string, r metishome.Reasoning) {
-	lv := levels[r.Kind]
-	switch lv {
-	case "drop":
-		return
-	case "", "context":
-		d.Context("", r.Line)
-	default:
-		if d.Note(lv, r.Line) != nil {
-			d.Context("", r.Line)
-		}
-	}
 }
 
 // logDialogue writes the dialogue's events to the log (stream dialog) and indexes what was
@@ -298,46 +262,5 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log) {
 				L.Episode(rec, text)
 			}
 		}
-	}
-}
-
-// projector gives the voice session the world's lines when their words change (the age coarse,
-// so a line is said again a few times an hour, not every minute).
-type projector struct {
-	mu   sync.Mutex
-	said map[string]string
-}
-
-var ages = regexp.MustCompile(`just now|\d+ (min|h|d) ago`)
-
-func ageWord(s float64) string {
-	switch {
-	case s < 90:
-		return "just now"
-	case s < 600:
-		return "a few min ago"
-	case s < 3600:
-		return "over 10 min ago"
-	case s < 86400:
-		return fmt.Sprintf("%.0f h ago", s/3600)
-	}
-	return fmt.Sprintf("%.0f d ago", s/86400)
-}
-
-func (p *projector) step(d *dialogue.Dialogue, lines []sw.Line) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, l := range lines {
-		text := ages.ReplaceAllString(l.Text, ageWord(l.Age))
-		k := l.Stream + "\x00" + l.Key
-		if p.said[k] == text {
-			continue
-		}
-		p.said[k] = text
-		key := l.Key
-		if l.Stream == "env" && key != "" {
-			text = key + ": " + text
-		}
-		d.Context(key, text)
 	}
 }
