@@ -80,7 +80,8 @@ type Config struct {
 	} `yaml:"tasks"`
 	Search struct { // web_search (websearch/): Google Search grounding through Gemini Flash
 		Enabled bool     `yaml:"enabled"`
-		Models  []string `yaml:"models"` // tried in order
+		SearXNG string   `yaml:"searxng"` // its URL: tried first
+		Models  []string `yaml:"models"`  // Gemini grounding, tried in order after it
 		Key     string   `yaml:"key"`
 		Daily   int      `yaml:"daily"` // web queries a day at most
 	} `yaml:"search"`
@@ -212,11 +213,15 @@ func main() {
 	obs.OnLine = k.Observe
 	reads := readTools(obs)
 	if c.Search.Enabled { // web_search: Google Search grounding through Gemini Flash, the voice's and the tasks'
-		key, err := tasks.Key("google", expand(c.Search.Key))
-		if err != nil {
-			stdlog.Fatalf("search: %v", err)
+		key := ""
+		if len(c.Search.Models) > 0 {
+			k, err := tasks.Key("google", expand(c.Search.Key))
+			if err != nil {
+				stdlog.Fatalf("search: %v", err)
+			}
+			key = k
 		}
-		ws, err := websearch.New(ctx, key, c.Search.Models, c.Search.Daily, L, now)
+		ws, err := websearch.New(ctx, c.Search.SearXNG, key, c.Search.Models, c.Search.Daily, L, now)
 		if err != nil {
 			stdlog.Fatalf("search: %v", err)
 		}

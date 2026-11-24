@@ -1,13 +1,17 @@
-// Package websearch is Nina's web_search tool (the user, 2026-11-25: she suffered without the
-// information; Google Search grounding through Gemini Flash, as a pi tool): one query asked of a
-// Gemini Flash model with the GoogleSearch tool, its grounded answer with the sources. The voice and
-// the delegated tasks share it. Google bills searches per query the model runs (Gemini 3 and newer:
-// 5,000 a month free, shared, then $14 per 1,000), so a day has a cap, counted from the log.
+// Package websearch is Nina's web_search tool, a pi tool the voice and the delegated tasks share
+// (the user, 2026-11-25: she suffered without the information). Its backend is SearXNG (self-hosted
+// metasearch, its JSON API: the top results' titles, snippets and sites, for the asking model to
+// answer from; no account, no cost), and, when the Gemini key's project allows it, Google Search
+// grounding through Gemini Flash (a grounded answer with its sources; Gemini 3: 5,000 searches a
+// month free, then $14 per 1,000, so a day has a cap, counted from the log).
 package websearch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -21,12 +25,14 @@ import (
 const Stream = "search"
 
 type Searcher struct {
-	Client *genai.Client
-	Models []string // tried in order (an overloaded one gives way to the next)
-	Daily  int      // web queries a day at most (0: 150, ~4,500 a month)
-	Try    time.Duration
-	Log    *nlog.Log
-	Now    func() float64
+	SearXNG string        // its URL (http://127.0.0.1:8888): tried first; "" none
+	Top     int           // SearXNG's results given (0: 5)
+	Client  *genai.Client // nil: no grounding
+	Models  []string      // tried in order (an overloaded one gives way to the next)
+	Daily   int           // web queries a day at most (0: 150, ~4,500 a month)
+	Try     time.Duration
+	Log     *nlog.Log
+	Now     func() float64
 
 	mu    sync.Mutex
 	day   string
@@ -34,12 +40,15 @@ type Searcher struct {
 }
 
 // New makes a searcher on the Gemini API with the key, its count for today read from the log.
-func New(ctx context.Context, key string, models []string, daily int, l *nlog.Log, now func() float64) (*Searcher, error) {
-	c, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key, Backend: genai.BackendGeminiAPI})
-	if err != nil {
-		return nil, err
+func New(ctx context.Context, searxng, key string, models []string, daily int, l *nlog.Log, now func() float64) (*Searcher, error) {
+	s := &Searcher{SearXNG: strings.TrimRight(searxng, "/"), Models: models, Daily: daily, Log: l, Now: now, Try: 25 * time.Second}
+	if key != "" && len(models) > 0 {
+		c, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key, Backend: genai.BackendGeminiAPI})
+		if err != nil {
+			return nil, err
+		}
+		s.Client = c
 	}
-	s := &Searcher{Client: c, Models: models, Daily: daily, Log: l, Now: now, Try: 25 * time.Second}
 	if s.Daily <= 0 {
 		s.Daily = 150
 	}
@@ -76,7 +85,17 @@ func (s *Searcher) Search(ctx context.Context, query string) (string, error) {
 	}
 	s.mu.Unlock()
 	var errs []string
+	if s.SearXNG != "" {
+		text, err := s.searx(ctx, query)
+		if err == nil {
+			return text, nil
+		}
+		errs = append(errs, "searxng: "+err.Error())
+	}
 	for _, m := range s.Models {
+		if s.Client == nil {
+			break
+		}
 		c, cancel := context.WithTimeout(ctx, s.Try)
 		resp, err := s.Client.Models.GenerateContent(c, m, genai.Text(instruction+query),
 			&genai.GenerateContentConfig{Tools: []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}})
@@ -145,4 +164,62 @@ func (s *Searcher) Tool() tasks.Tool {
 			}
 			return "done", text
 		}}
+}
+
+// searx asks SearXNG: the top results as lines the asking model answers from.
+func (s *Searcher) searx(ctx context.Context, query string) (string, error) {
+	c, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(c, "GET", s.SearXNG+"/search?format=json&q="+url.QueryEscape(query), nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var d struct {
+		Results []struct {
+			Title, URL, Content string
+			Published           string `json:"publishedDate"`
+		} `json:"results"`
+		Answers []any `json:"answers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return "", err
+	}
+	if len(d.Results) == 0 {
+		return "", fmt.Errorf("no results")
+	}
+	top := s.Top
+	if top <= 0 {
+		top = 5
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Web results for %q (answer from them, say the source in a few words; they may be partial):\n", query)
+	var sites []string
+	for i, r := range d.Results {
+		if i == top {
+			break
+		}
+		site := r.URL
+		if u, err := url.Parse(r.URL); err == nil {
+			site = strings.TrimPrefix(u.Host, "www.")
+		}
+		sites = append(sites, site)
+		date := ""
+		if len(r.Published) >= 10 {
+			date = ", " + r.Published[:10]
+		}
+		fmt.Fprintf(&b, "%d. %s: %s (%s%s)\n", i+1, strings.TrimSpace(r.Title), strings.Join(strings.Fields(r.Content), " "), site, date)
+	}
+	s.mu.Lock()
+	s.count++
+	n := s.count
+	s.mu.Unlock()
+	if s.Log != nil {
+		s.Log.Append(s.Now(), Stream, "searched", "", "", map[string]any{"query": query, "backend": "searxng", "sources": sites, "today": n}, 1)
+	}
+	return strings.TrimSpace(b.String()), nil
 }
