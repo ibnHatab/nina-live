@@ -22,6 +22,10 @@ os.makedirs(out, exist_ok=True)
 cv2.imwrite(os.path.join(out, "neutral.webp"), base, [cv2.IMWRITE_WEBP_QUALITY, 82])
 for name, ellipses in spec.items():
     img = cv2.imread(os.path.join(d, name + ".png"))
+    if img.shape[:2] != (h, w):  # another model's size (Codex: 1122x1402): to the base's width, centred
+        img = cv2.resize(img, (w, round(img.shape[0] * w / img.shape[1])), interpolation=cv2.INTER_AREA)
+        top = (img.shape[0] - h) // 2
+        img = img[top:top + h] if top >= 0 else cv2.copyMakeBorder(img, -top, h - img.shape[0] + top, 0, 0, cv2.BORDER_REPLICATE)
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     warp = np.eye(2, 3, dtype=np.float32)
     # register on the face only (the hair and shoulders are what the model redrew most)
