@@ -38,7 +38,7 @@ import (
 
 const (
 	defProvider = "openrouter"
-	defModel    = "google/gemini-3.8-flash" // the voice's family (Gemini Flash), the newest on OpenRouter
+	defModel    = "deepseek/deepseek-v4.1-flash" // the user's choice (2026-11-24): like Gemini 3.8 Flash, a fraction of the cost
 	defKey      = "~/.config/metis/openrouter.env"
 )
 

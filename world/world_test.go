@@ -186,3 +186,61 @@ func TestAnotherGenesisIsNotChecked(t *testing.T) {
 		t.Fatalf("another genesis: %+v", rep)
 	}
 }
+
+// TestTheWorldStartsFromItsSnapshot: with snapshots, the world stream keeps only what follows the
+// latest one, the rebuild restores it and reaches the live world, and the other streams are whole.
+func TestTheWorldStartsFromItsSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nina.db")
+	ctx := context.Background()
+	l, err := nlog.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cfg("test-1")
+	c.SnapshotEvery = 3
+	w, _, err := Open(ctx, l, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := day(t)
+	for i, ev := range evs {
+		w.Apply(ev)
+		if i%5 == 0 {
+			l.Append(ev.At, "dialog", "heard", "", "", map[string]string{"text": "a word"}, 1)
+		}
+	}
+	want := w.Home.Hash()
+	if _, err := w.Snapshot(1e6); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+
+	l, _ = nlog.Open(path)
+	defer l.Close()
+	world, dialog := 0, 0
+	l.Read(ctx, 0, func(e nlog.Event) error {
+		if e.Stream == Stream {
+			world++
+		} else if e.Stream == "dialog" {
+			dialog++
+		}
+		return nil
+	})
+	if world > 3 || dialog != (len(evs)+4)/5 {
+		t.Fatalf("after the snapshot: %d world events (want the genesis and the snapshot), %d dialog", world, dialog)
+	}
+	w2, rep, err := Open(ctx, l, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Snapshot == 0 || rep.Refused != "" || w2.Home.Hash() != want {
+		t.Fatalf("the restore: %+v (live %s, restored %s)", rep, want, w2.Home.Hash())
+	}
+	// another map: the snapshot is refused, the world starts empty
+	c2 := c
+	c2.Members = nil
+	_, rep2, err := Open(ctx, l, c2)
+	if err != nil || rep2.Refused == "" {
+		t.Fatalf("other members: %+v %v", rep2, err)
+	}
+}

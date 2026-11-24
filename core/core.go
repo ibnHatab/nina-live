@@ -177,6 +177,7 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 		select {
 		case <-ctx.Done():
 			k.World.Checkpoint(k.Cfg.Now())
+			k.World.Snapshot(k.Cfg.Now()) // the next start restores it; the world events before it go
 			return
 		case <-tk.C:
 			k.Home.Beat()

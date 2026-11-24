@@ -215,3 +215,44 @@ func repeat(s string, n int) string {
 	}
 	return out
 }
+
+// Latest is the stream's last event of the kind (ok false: none).
+func (l *Log) Latest(ctx context.Context, stream, kind string) (Event, bool, error) {
+	var e Event
+	var data string
+	err := l.db.QueryRowContext(ctx, `SELECT seq, at, stream, kind, COALESCE(key,''), COALESCE(cause,''), data, v
+		FROM events WHERE stream = ? AND kind = ? ORDER BY seq DESC LIMIT 1`, stream, kind).
+		Scan(&e.Seq, &e.At, &e.Stream, &e.Kind, &e.Key, &e.Cause, &data, &e.V)
+	if err == sql.ErrNoRows {
+		return e, false, nil
+	}
+	if err != nil {
+		return e, false, err
+	}
+	e.Data = json.RawMessage(data)
+	return e, true, nil
+}
+
+// Prune deletes the stream's events before seq (a snapshot has made them unneeded), but for the
+// kinds kept → how many. The other streams are kept whole: the conversations are kept for mining.
+func (l *Log) Prune(stream string, before int64, keep ...string) (int64, error) {
+	q := `DELETE FROM events WHERE stream = ? AND seq < ?`
+	args := []any{stream, before}
+	if len(keep) > 0 {
+		q += ` AND kind NOT IN (?` + repeat(",?", len(keep)-1) + `)`
+		for _, k := range keep {
+			args = append(args, k)
+		}
+	}
+	r, err := l.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}
+
+// Vacuum gives the pruned space back to the file system.
+func (l *Log) Vacuum() error {
+	_, err := l.db.Exec(`VACUUM`)
+	return err
+}

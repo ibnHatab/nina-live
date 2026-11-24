@@ -10,6 +10,13 @@
 // The genesis (the map, the parameters, the members' manifests) is the configuration of the
 // process that starts. It is written to the log when it changes, for the record, but a rebuild
 // always applies the whole stream with the current one: an old reading is still a reading.
+//
+// A snapshot (kind "snapshot") is the world's state at its seq; every SnapshotEvery checkpoints,
+// at the start and at a clean stop the world writes one and prunes the world stream before it (the
+// user's choice, 2026-11-24: the snapshot, and the older state thrown away; the other streams, the
+// conversations among them, are kept whole). A rebuild restores the latest snapshot and applies
+// the events after it. A snapshot of another map or other members is not restored (another map
+// gives another world): the world then starts empty and its readings come back from the feed.
 package world
 
 import (
@@ -40,7 +47,10 @@ type Config struct {
 	Members []Member
 	Code    string // what computed the checkpoints (a build's id); a checkpoint of other code is not checked
 	Every   int    // a checkpoint every this many settles (0: 60)
-	Now     func() float64
+	// SnapshotEvery: a snapshot (and the prune) every this many checkpoints (0: 60, an hour of
+	// beats at the defaults); negative: none, the stream kept whole
+	SnapshotEvery int
+	Now           func() float64
 }
 
 // World is the home's world, kept by the log.
@@ -50,6 +60,8 @@ type World struct {
 	cfg     Config
 	mu      sync.Mutex
 	n       int // settles since the last checkpoint
+	cps     int // checkpoints since the last snapshot
+	gen     genesis
 	genesis string
 	// OnOut sees every applied event and its outputs (the members' lines, the projection, the
 	// surprises), live and never during the rebuild.
@@ -63,6 +75,18 @@ type Report struct {
 	Checked  int     // checkpoints checked
 	Mismatch []int64 // the seqs of checkpoints the replay did not reach
 	Genesis  bool    // a new genesis was written (the configuration changed)
+	Snapshot int64   // the seq of the snapshot restored (0: none, the stream from its start)
+	Refused  string  // why the latest snapshot was not restored ("" restored, or none)
+	Pruned   int64   // world events pruned at this start
+}
+
+// snap is a snapshot event's data.
+type snap struct {
+	Code    string      `json:"code"`
+	MapHash string      `json:"map_hash"`
+	Members []memberRec `json:"members"`
+	Hash    string      `json:"hash"`
+	State   []byte      `json:"state"` // semhome's Snapshot (base64 in the JSON)
 }
 
 type genesis struct {
@@ -95,6 +119,9 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 	}
 	if c.Every <= 0 {
 		c.Every = 60
+	}
+	if c.SnapshotEvery == 0 {
+		c.SnapshotEvery = 60
 	}
 	mb, err := os.ReadFile(c.Map)
 	if err != nil {
@@ -129,16 +156,53 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 		Mem  []memberRec
 	}{g.MapHash, g.Code, g.Params, g.Members})
 	g.GenesisH = digest(gb)
-	w := &World{Home: h, Log: l, cfg: c, genesis: g.GenesisH}
+	w := &World{Home: h, Log: l, cfg: c, genesis: g.GenesisH, gen: g}
 
-	last := ""
-	err = l.Read(ctx, 0, func(e nlog.Event) error {
+	last := "" // the latest genesis recorded (it may precede the snapshot)
+	if ge, ok, err := l.Latest(ctx, Stream, "genesis"); err != nil {
+		return nil, rep, err
+	} else if ok {
+		var x genesis
+		if json.Unmarshal(ge.Data, &x) == nil {
+			last = x.GenesisH
+		}
+	}
+	var from int64
+	if se, ok, err := l.Latest(ctx, Stream, "snapshot"); err != nil {
+		return nil, rep, err
+	} else if ok {
+		from = se.Seq
+		var x snap
+		switch {
+		case json.Unmarshal(se.Data, &x) != nil:
+			rep.Refused = "unreadable"
+		case x.MapHash != g.MapHash || !sameMembers(x.Members, g.Members):
+			rep.Refused = "another map or other members"
+		default:
+			if err := h.Restore(x.State); err != nil {
+				rep.Refused = err.Error()
+			} else {
+				rep.Snapshot = se.Seq
+			}
+		}
+		if rep.Refused != "" { // the events before it are gone: the world starts empty
+			h = semhome.New(m, c.Params)
+			for _, mem := range c.Members {
+				if man, err := sw.ReadManifest(mem.Manifest, mem.Name); err == nil && (len(man.Beliefs) > 0 || len(man.Levels) > 0) {
+					h.B.Join(man)
+				}
+			}
+			w.Home = h
+		}
+	}
+	err = l.Read(ctx, from, func(e nlog.Event) error {
 		switch e.Kind {
 		case "genesis":
 			var x genesis
 			if json.Unmarshal(e.Data, &x) == nil {
 				last = x.GenesisH
 			}
+		case "snapshot":
 		case "checkpoint":
 			var x checkpoint
 			if json.Unmarshal(e.Data, &x) == nil && x.Code == c.Code && x.Genesis == g.GenesisH {
@@ -168,7 +232,55 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 		}
 		rep.Genesis = true
 	}
+	if c.SnapshotEvery > 0 {
+		n, err := w.snapshot(w.now())
+		if err != nil {
+			return nil, rep, err
+		}
+		rep.Pruned = n
+		if n > 10000 {
+			l.Vacuum()
+		}
+	}
 	return w, rep, nil
+}
+
+func sameMembers(a, b []memberRec) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// snapshot writes the world's state and prunes the world stream before it → the events pruned.
+// The caller holds w.mu, or is Open.
+func (w *World) snapshot(at float64) (int64, error) {
+	st, err := w.Home.Snapshot()
+	if err != nil {
+		return 0, err
+	}
+	e, err := w.Log.Append(at, Stream, "snapshot", "", "", snap{Code: w.cfg.Code, MapHash: w.gen.MapHash,
+		Members: w.gen.Members, Hash: w.Home.Hash(), State: st}, 1)
+	if err != nil {
+		return 0, err
+	}
+	w.cps = 0
+	return w.Log.Prune(Stream, e.Seq, "genesis") // the genesis records stay: the configurations' history
+}
+
+// Snapshot writes a snapshot now and prunes the world stream before it (at a clean stop).
+func (w *World) Snapshot(at float64) (int64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cfg.SnapshotEvery < 0 {
+		return 0, nil
+	}
+	return w.snapshot(at)
 }
 
 func (w *World) now() float64 {
@@ -195,6 +307,11 @@ func (w *World) Apply(ev semhome.Event) (semhome.Out, error) {
 			w.n = 0
 			if _, err := w.Log.Append(ev.At, Stream, "checkpoint", "", "", checkpoint{w.cfg.Code, w.genesis, w.Home.Hash()}, 1); err != nil {
 				return out, err
+			}
+			if w.cps++; w.cfg.SnapshotEvery > 0 && w.cps >= w.cfg.SnapshotEvery {
+				if _, err := w.snapshot(ev.At); err != nil {
+					return out, err
+				}
 			}
 		}
 	}

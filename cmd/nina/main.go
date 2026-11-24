@@ -156,8 +156,8 @@ func main() {
 	if k.Tasks != nil {
 		k.Tasks.AddTool(k.Recall())
 	}
-	stdlog.Printf("the world rebuilt from %d events (%d checkpoints checked, %d missed, genesis %v); %s backend, composed %v, tasks %v; %.2fs",
-		k.Report.Events, k.Report.Checked, len(k.Report.Mismatch), k.Report.Genesis, k.Home.Backend(), c.Home.Composed,
+	stdlog.Printf("the world rebuilt from snapshot %d (%s) and %d events (%d checkpoints checked, %d missed, genesis %v; %d pruned); %s backend, composed %v, tasks %v; %.2fs",
+		k.Report.Snapshot, k.Report.Refused, k.Report.Events, k.Report.Checked, len(k.Report.Mismatch), k.Report.Genesis, k.Report.Pruned, k.Home.Backend(), c.Home.Composed,
 		k.Tasks != nil, time.Since(t0).Seconds())
 
 	// her voice: the dialogue, its preferences from the log, the core's tools (and delegate)

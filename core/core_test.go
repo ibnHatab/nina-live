@@ -292,15 +292,20 @@ func TestTheCoresLogRebuildsItsWorld(t *testing.T) {
 	})
 	wait(t, r.k.Tasks.Delegate("Start the lab ventilation.", "info"))
 	time.Sleep(600 * time.Millisecond) // the device obeys, the feed reads it back, a few beats
-	r.stop()
-	time.Sleep(200 * time.Millisecond)
-	live := r.k.World.Home.Hash()
 	kinds := map[string]int{}
 	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error { kinds[e.Stream+"/"+e.Kind]++; return nil })
 	for _, k := range []string{"world/command", "world/ha_state", "world/settle", "world/checkpoint", "task/created", "task/done", "reasoning/result"} {
 		if kinds[k] == 0 {
 			t.Fatalf("no %s in the log: %v", k, kinds)
 		}
+	}
+	r.stop() // the clean stop: a snapshot, the world events before it pruned
+	time.Sleep(200 * time.Millisecond)
+	live := r.k.World.Home.Hash()
+	after := map[string]int{}
+	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error { after[e.Stream+"/"+e.Kind]++; return nil })
+	if after["world/settle"] != 0 || after["world/snapshot"] != 1 || after["task/done"] != kinds["task/done"] {
+		t.Fatalf("after the stop's snapshot: %v", after)
 	}
 	root, _ := filepath.Abs("../catalog")
 	var members []world.Member
@@ -312,7 +317,7 @@ func TestTheCoresLogRebuildsItsWorld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Mismatch) != 0 || rep.Checked == 0 || W.Home.Hash() != live {
+	if len(rep.Mismatch) != 0 || rep.Snapshot == 0 || rep.Refused != "" || W.Home.Hash() != live {
 		t.Fatalf("the rebuild: %+v (live %s, rebuilt %s)", rep, live, W.Home.Hash())
 	}
 }
