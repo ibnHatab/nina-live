@@ -91,7 +91,8 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
-	unseen       int // surprises since the person last asked about them
+	unseen       int      // surprises since the person last asked about them
+	presence     Presence // the radar's last reading
 	lastMinute   string
 	mood         *persona.Selector // Nina's temperament; nil without one
 	moodAt       time.Time
@@ -579,9 +580,48 @@ func (k *Core) Floor(to string) {
 }
 
 // SetVoice gives the core its voice (the dialogue is made after the core: its tools are the core's).
-// Viewer is where the person is (the screen panel's radar: their direction for the face's
-// parallax, on the dashboard; their distance here): her voice's loudness follows the distance,
-// closer quieter (about 0.6 at 0.9 m, 1 at 1.5 m, 1.6 from 2.4 m).
+// Presence is the radar's reading (the Pi's LD2410C, fsttm-live cmd/radar: sensor.nina_viewer).
+type Presence struct {
+	Present, Near, InReach bool
+	Distance               float64 // metres
+	Trend                  string  // approaching | departing | still
+}
+
+// Presence takes the radar's reading (the user, 2026-11-25: presence and distance): her loudness
+// follows the distance; on a change (someone arrives, comes near, leaves) the voice and the tasks
+// get a line of context and the log a line; someone stepping up within reach of the screen and
+// near (1.5 m) wakes her for the follow-up, so they can simply talk (anyone farther, passing
+// through the room, does not: awake, the microphone's audio goes to the cloud).
+func (k *Core) Presence(p Presence) {
+	if p.Present {
+		k.Viewer(p.Distance)
+	}
+	k.mu.Lock()
+	prev := k.presence
+	k.presence = p
+	k.mu.Unlock()
+	if p.Present == prev.Present && p.Near == prev.Near {
+		return
+	}
+	line := "presence: nobody is in front of the screen"
+	kind := "left"
+	switch {
+	case p.Present && p.Near:
+		line, kind = fmt.Sprintf("presence: someone is at the screen, %.1f m away (%s)", p.Distance, p.Trend), "near"
+	case p.Present:
+		line, kind = fmt.Sprintf("presence: someone is in the room, %.1f m from the screen (%s)", p.Distance, p.Trend), "arrived"
+	}
+	k.Observe("presence", line)
+	k.Log.Append(k.Cfg.Now(), "presence", kind, "", "", map[string]any{"distance": p.Distance, "trend": p.Trend, "near": p.Near}, 1)
+	if p.Near && !prev.Near && p.Trend != "departing" {
+		if d, ok := k.Voice().(interface{ Do(string, string) error }); ok {
+			d.Do("wake", "")
+		}
+	}
+}
+
+// Viewer is the person's distance: her voice's loudness follows it, closer quieter (about 0.6
+// at 0.9 m, 1 at 1.5 m, 1.6 from 2.4 m).
 func (k *Core) Viewer(distance float64) {
 	if distance <= 0 {
 		return

@@ -246,7 +246,7 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
-	go func() { // the person's distance (sensor.nina_viewer, the panel's radar, when there is one): her loudness
+	go func() { // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
 		last := ""
 		for range time.Tick(2 * time.Second) {
 			raw, err := ha.Call("GET", "/api/states/sensor.nina_viewer", nil)
@@ -254,6 +254,7 @@ func main() {
 				continue // no radar yet
 			}
 			var st struct {
+				State      string         `json:"state"`
 				Updated    string         `json:"last_updated"`
 				Attributes map[string]any `json:"attributes"`
 			}
@@ -261,9 +262,12 @@ func main() {
 				continue
 			}
 			last = st.Updated
-			if dist, ok := st.Attributes["distance"].(float64); ok {
-				k.Viewer(dist)
-			}
+			p := core.Presence{Present: st.State == "present"}
+			p.Distance, _ = st.Attributes["distance"].(float64)
+			p.Near, _ = st.Attributes["near"].(bool)
+			p.InReach, _ = st.Attributes["in_reach"].(bool)
+			p.Trend, _ = st.Attributes["trend"].(string)
+			k.Presence(p)
 		}
 	}()
 	go logDialogue(ctx, d, L, k.Floor)
