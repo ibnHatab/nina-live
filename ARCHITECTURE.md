@@ -306,7 +306,7 @@ deployment.
 
 ## 7. Milestones
 
-1. **The same Nina, in the new layout, without pi:**
+1. **The same Nina, in the new layout, without pi** (done on Pascal 2026-11-24, except the Pi 4 build):
    - `cmd/nina`: fsttm-live through `pkg/dialogue`, the home packages flat (as today) on the
      embedded runtime, and the semantic world from the event log.
    - acasa's HA tool, the panel.
@@ -317,7 +317,9 @@ deployment.
    - over the home's packages (scenes' fan-out as rules);
    - Live sees two cards;
    - `metisc --link` certifies.
-3. **System 2:**
+3. **System 2** (the user: when testing, experiment with `Steer`, `FollowUp` and
+   `TransformContext` to make the system flexible and natural; embedding pi is meant to reuse
+   its tools and some public plugins):
    - pi for `delegate`, with tasks, results as notes;
    - web and memory as specialists;
    - transcripts in the log.

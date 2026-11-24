@@ -13,7 +13,13 @@ Nina as a personal agent: speech is one way to reach her, not her core.
 - **[acasa](https://github.com/ibnHatab/acasa)** is the home: the Home Assistant tool and the
   deployment.
 
-Status: design. Read [ARCHITECTURE.md](ARCHITECTURE.md): the roles, the event log and its
-determinism contract, Metis and pi, the dataflows, the milestones.
+Status: milestone 1 runs on Pascal (2026-11-24): `cmd/nina` holds her voice, the home's rules,
+the world rebuilt from the log and Home Assistant as her tool, in one service (acasa's
+`acasa-nina`). The Pi 4 build is still to do. pi comes in milestone 3. Read
+[ARCHITECTURE.md](ARCHITECTURE.md) for the roles, the event log and its determinism contract,
+Metis and pi, the dataflows and the milestones.
+
+    ./build.sh                 # → bin/nina (cgo: metis-lang's libmetis_rt; METIS_LANG_DIR)
+    ./build.sh test ./...
 
 License: [Anti-Capitalist Software License v1.4](LICENSE).
