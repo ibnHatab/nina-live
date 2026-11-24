@@ -84,6 +84,7 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
+	lastMinute   string
 	Character    *taste.Character // the home's character (its moods, its routines)
 	routineDay   map[string]string
 	Report       world.Report
@@ -301,6 +302,24 @@ func (k *Core) surprise(domain string, r map[string]any) {
 	}()
 }
 
+// clock gives the voice the time, once a minute: its session knows no clock of its own (it said
+// 18:17 at 17:17), and the person asks.
+func (k *Core) clock() {
+	now := time.Unix(int64(k.Cfg.Now()), 0)
+	m := now.Format("Mon 2 Jan 2006 15:04")
+	k.mu.Lock()
+	same := m == k.lastMinute
+	k.lastMinute = m
+	k.mu.Unlock()
+	if same {
+		return
+	}
+	if v := k.Voice(); v != nil {
+		zone, _ := now.Zone()
+		v.Context("now", fmt.Sprintf("now: %s (%s, local time)", m, zone))
+	}
+}
+
 // routines turn the home to a mood at the character's times (bedtime: sleep; morning: wake), once a
 // day each, as a person would ask the scenes; logged as a routine (stream routine), never as the
 // person's habit.
@@ -440,6 +459,7 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 		case <-tk.C:
 			k.Home.Beat()
 			k.routines()
+			k.clock()
 		}
 	}
 }
