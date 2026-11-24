@@ -3,7 +3,7 @@ module github.com/ibnHatab/nina-live
 go 1.26.0
 
 require (
-	github.com/ibnHatab/acasa v0.0.0-20261124052352-2d38b271a95d
+	github.com/ibnHatab/acasa v0.0.0-20261124110834-fdc95fd8bd1c
 	github.com/ibnHatab/fsttm-live v0.0.0-20261124052911-3739558c3e70
 	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261124110108-52065551dc5f

@@ -316,6 +316,77 @@ steering:
 The routes map onto what exists: the voice's `Context` and `Note`, a task's `Steer` and `FollowUp`,
 and the world's `Report` and `Conclude`.
 
+## Home Assistant is the integration layer
+
+The user's plan (2026-11-24): Nina does not write connectors for outside services that Home
+Assistant already integrates. Each layer has one job:
+- **Home Assistant** connects to the world: the integrations, the entities, the event bus and the
+  services.
+- **Metis** gives the domains their meaning: the state, the constraints and the relations between
+  domains, and it steers the LLMs.
+- **pi and Flash** interpret, do the open-ended work and answer.
+
+One adapter per standard entity class, never per service (acasa `hass/classes.go`): the `todo`
+class covers the shopping list, Local To-do, Google Tasks and Todoist; the `calendar` class covers
+Google Calendar, Local Calendar and CalDAV. The adapter reads the feed (the websocket's
+`state_changed`, which acasa already followed) and the services that answer (`weather.get_forecasts`,
+`todo.get_items`, `calendar.get_events`, with `return_response`). Each entity becomes a line for
+the voice's context and the tasks' world. The voice and the tasks also get the read tools `lists`,
+`calendar` and `weather`.
+
+A change made through Home Assistant (adding an item, creating an event) goes through a Metis
+domain, as the home's commands do: the domain's rules decide, and its host calls the service.
+
+| Nina domain | Home Assistant class / integration | On Pascal now | Metis side |
+|---|---|---|---|
+| home, comfort | `light`, `fan`, `switch`, `climate`, `sensor` (Prana, later Zigbee, Matter) | the two Prana units | running (the five packages) |
+| weather | `weather` (Met.no now; Open-Meteo) | `weather.home` (Met.no): now and three days, in the context | the lines; rules to come (weather + calendar) |
+| tasks, shopping | `todo` (Shopping List, Local To-do, Google Tasks) | `todo.shopping_list` | the lines and `lists`; a writing domain next |
+| calendar, reminders | `calendar` (Google Calendar, Local Calendar) | none yet | next: the Google exchange point (below) |
+| time | `timer`, `schedule` | none in use | Nina's own `timers` stay (her scheduler must not depend on Home Assistant) |
+| media | `media_player` (Music Assistant, Radio Browser) | Radio Browser installed; no player | the lines; the media domain later |
+| people | `person`, `device_tracker` | `person.nina` | the lines |
+| news | Feedreader | none | later |
+| cooking, inventory | Mealie, Grocy (servers of their own) | none | later |
+| diagnostics | System Monitor, Repairs, `update` | none | later |
+| memory, interests, projects, goals, commitments, learning, refinement, notification policy | none suitable | | Nina's own |
+
+### Google is the exchange point with the phone
+
+The user's requirement (2026-11-24): what Nina derives locally shows up on the Android phone, and
+what is entered on the phone reaches Nina, both ways, through Google's services.
+- **Google Calendar** (Home Assistant's `google` integration): its calendars become `calendar.*`
+  entities. Events entered on the phone reach Nina through `calendar.get_events`, and Home
+  Assistant polls Google every few minutes. Nina's own items (a reminder at a time, a commitment
+  with a date) go out with `calendar.create_event` and appear on the phone.
+- **Google Tasks** (`google_tasks`): each task list becomes a `todo.*` entity, read and written
+  through the same todo adapter. A to-do or a reminder without a time goes there.
+- **Who owns what.** An item Nina created carries a mark of her own, so she never imports it back
+  as the person's. An item the person changes on the phone is a person's report: it updates Nina's
+  belief, the way a sensor contradicts a command.
+- **What it needs from the person.** The Google sign-in is the person's: a Google Cloud OAuth
+  client added under Home Assistant's application credentials, then the two integrations added in
+  Home Assistant's settings. Nina never sees the password.
+
+### What stays native
+
+Nina keeps her own scheduler and timers: a conditional reminder and an autonomous task must not
+depend on Home Assistant being up. Home Assistant's timers are shown, not relied on. Also native:
+memory, interests, research, learning, projects, goals, commitments, refinement and the
+notification policy. These are where Nina is more than Home Assistant.
+
+### Order
+
+| Phase | In Home Assistant (the person installs) | In Nina |
+|---|---|---|
+| 1 | — | the class adapters (done: weather, todo, calendar, timer, person, media_player) |
+| 2 | Google Calendar, Google Tasks | the calendar and lists domains, their writes through Metis; reminders mirrored to the phone |
+| 3 | MCP Server | the tools of the rest of Home Assistant to pi, a mutating call checked by the rules |
+| 4 | Music Assistant | media reasoning (sessions, preferences, volume lowered while the person talks) |
+| 5 | Feedreader | news and interests |
+| 6 | Mealie, Grocy, Shopping List | cooking, inventory, shopping |
+| 7 | GitHub, System Monitor | projects, diagnostics |
+
 ## Releases
 
 | Release | Domains | Nina becomes | State |

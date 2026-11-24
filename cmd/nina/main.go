@@ -153,8 +153,15 @@ func main() {
 	if err != nil {
 		stdlog.Fatal(err)
 	}
+	obs := hass.NewObserver(ha) // Home Assistant's standard classes: weather, lists, calendars, timers, people, players
+	k.Observed = obs.Lines
+	obs.OnLine = k.Observe
+	reads := readTools(obs)
 	if k.Tasks != nil {
 		k.Tasks.AddTool(k.Recall())
+		for _, t := range reads {
+			k.Tasks.AddTool(t)
+		}
 	}
 	stdlog.Printf("the world rebuilt from snapshot %d (%s) and %d events (%d checkpoints checked, %d missed, genesis %v; %d pruned); %s backend, composed %v, tasks %v; %.2fs",
 		k.Report.Snapshot, k.Report.Refused, k.Report.Events, k.Report.Checked, len(k.Report.Mismatch), k.Report.Genesis, k.Report.Pruned, k.Home.Backend(), c.Home.Composed,
@@ -172,7 +179,7 @@ func main() {
 		}
 		return nil
 	}, "prefs")
-	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k))
+	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k, reads))
 	if err != nil {
 		stdlog.Fatal(err)
 	}
@@ -186,11 +193,12 @@ func main() {
 		stdlog.Fatal(err)
 	}
 	go func() {
-		if err := ha.Follow(ctx, k.World.Apply, now); err != nil {
+		if err := ha.Follow(ctx, obs.Feed(k.World.Apply), now); err != nil {
 			stdlog.Printf("[hass] %v: the world gets no readings", err)
 		}
 	}()
 	go k.Run(ctx, c.Home.Beat)
+	go obs.Run(ctx, 10*time.Minute)
 	L.Append(now(), "sys", "start", "", "", map[string]any{"code": code(), "replay": k.Report}, 1)
 	if err := d.Run(ctx); err != nil {
 		stdlog.Printf("the dialogue: %v", err)
@@ -198,11 +206,92 @@ func main() {
 	L.Append(now(), "sys", "stop", "", "", nil, 1)
 }
 
-// voiceTools are Gemini Live's: the home's cards and, with tasks, delegate.
-func voiceTools(k *core.Core) dialogue.Tools {
+// readTools read Home Assistant's classes for the voice and the tasks: every to-do list, every
+// calendar, the weather (whatever integration is behind each). Reading only: what changes them is
+// a Metis domain's command, like the home's.
+func readTools(o *hass.Observer) []tasks.Tool {
+	obj := func(props map[string]any) map[string]any {
+		return map[string]any{"type": "object", "properties": props}
+	}
+	return []tasks.Tool{
+		{Name: "lists", Domain: "lists", Description: "Read the to-do and shopping lists (Home Assistant's: the shopping list, local and Google lists): their open items.",
+			Parameters: obj(map[string]any{"list": map[string]any{"type": "string", "description": "a list's name; empty: every list"}}),
+			Call: func(ctx context.Context, a map[string]any) (string, string) {
+				want, _ := a["list"].(string)
+				var out []string
+				for _, st := range o.Entities("todo") {
+					n, _ := st.Attributes["friendly_name"].(string)
+					if want != "" && !strings.Contains(strings.ToLower(n+" "+st.EntityID), strings.ToLower(want)) {
+						continue
+					}
+					items, err := o.Items(ctx, st.EntityID, "needs_action")
+					if err != nil {
+						return "error", err.Error()
+					}
+					if len(items) == 0 {
+						out = append(out, n+": empty")
+					} else {
+						out = append(out, n+": "+strings.Join(items, ", "))
+					}
+				}
+				if len(out) == 0 {
+					return "done", "no such list"
+				}
+				return "done", strings.Join(out, "\n")
+			}},
+		{Name: "calendar", Domain: "calendar", Description: "Read the calendars' coming events (Home Assistant's calendars: Google, local).",
+			Parameters: obj(map[string]any{"days": map[string]any{"type": "number", "description": "how many days ahead (default 7)"}}),
+			Call: func(ctx context.Context, a map[string]any) (string, string) {
+				days, _ := a["days"].(float64)
+				if days <= 0 {
+					days = 7
+				}
+				var out []string
+				for _, st := range o.Entities("calendar") {
+					evs, err := o.Events(ctx, st.EntityID, time.Duration(days*24)*time.Hour, 20)
+					if err != nil {
+						return "error", err.Error()
+					}
+					n, _ := st.Attributes["friendly_name"].(string)
+					if len(evs) == 0 {
+						out = append(out, n+": nothing")
+					} else {
+						out = append(out, n+": "+strings.Join(evs, "; "))
+					}
+				}
+				if len(out) == 0 {
+					return "done", "no calendar is connected to Home Assistant yet"
+				}
+				return "done", strings.Join(out, "\n")
+			}},
+		{Name: "weather", Domain: "weather", Description: "The weather forecast: the next days, or the next hours.",
+			Parameters: obj(map[string]any{"hourly": map[string]any{"type": "boolean", "description": "the next hours instead of the next days"}}),
+			Call: func(ctx context.Context, a map[string]any) (string, string) {
+				kind, n := "daily", 5
+				if h, _ := a["hourly"].(bool); h {
+					kind, n = "hourly", 12
+				}
+				var out []string
+				for _, st := range o.Entities("weather") {
+					f, err := o.Forecast(ctx, st.EntityID, kind, n)
+					if err != nil {
+						return "error", err.Error()
+					}
+					out = append(out, f)
+				}
+				if len(out) == 0 {
+					return "done", "no weather integration"
+				}
+				return "done", strings.Join(out, "\n")
+			}},
+	}
+}
+
+// voiceTools are Gemini Live's: the home's cards, the read tools and, with tasks, delegate.
+func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 	var decls []*genai.FunctionDeclaration
 	funcs := map[string]dialogue.ToolFunc{}
-	for _, t := range k.HomeTools() {
+	for _, t := range append(k.HomeTools(), reads...) {
 		t := t
 		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
 		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {

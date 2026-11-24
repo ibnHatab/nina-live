@@ -68,6 +68,9 @@ type Core struct {
 	mu    sync.Mutex
 	voice Voice
 	port  *port.Port // the world's lines to the voice and the tasks: on a new value or confidence level
+	// Observed: the integration layer's lines now (Home Assistant's weather, lists, calendars: acasa's
+	// hass.Observer), with the world's before each task request
+	Observed func() []string
 }
 
 // Open builds the core: the world rebuilt from the log, the home's rules on it, the tasks.
@@ -263,13 +266,31 @@ type mute struct{}
 func (mute) Context(string, string)    {}
 func (mute) Note(string, string) error { return nil }
 
-// WorldLines are the world's environment lines now (a task's TransformContext).
+// Observe is an integration's line that changed (its key: the entity): the voice's silent context
+// and the tasks that named what it is about.
+func (k *Core) Observe(key, line string) {
+	if v := k.Voice(); v != nil {
+		v.Context(key, line)
+	}
+	if k.Tasks != nil {
+		k.Tasks.World(line)
+	}
+}
+
+// WorldLines are the world's environment lines now (a task's TransformContext), then the
+// integrations' and what the timers hold.
 func (k *Core) WorldLines() []string {
 	var out []string
 	for _, l := range k.World.Home.Lines(k.Cfg.Now()) {
 		if l.Stream == "env" {
 			out = append(out, ages.ReplaceAllString(l.Text, ageWord(l.Age)))
 		}
+	}
+	if k.Observed != nil {
+		out = append(out, k.Observed()...)
+	}
+	if k.Timers != nil {
+		out = append(out, k.Timers.Summary())
 	}
 	return out
 }
