@@ -297,7 +297,10 @@ nina-live/
 ├── agent/                    pi: one Agent per task; delegate; results → task events → notes
 ├── tasks/  sched/            tasks; the scheduler (time events: a stream, so replay sees them)
 ├── channels/voice web gpio/  the ways to reach her
-└── domains/nina/             the director instance + the generated specialists + iface/nina.llp
+└── catalog/                  Nina's Metis domains, one composition (the user's decision, 2026-11-24):
+                              the home world moved from metis-worlds with its history (domains/: lights,
+                              air, media, scenes, comfort, shared; world/home.map.json); the director, the
+                              interface packages and the other tool families' specialists join it
 ```
 
 acasa supplies `hass/` (the HA tool: the feed becomes `ha_state` events, the REST calls become
