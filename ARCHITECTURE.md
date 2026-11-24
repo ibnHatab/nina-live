@@ -316,7 +316,7 @@ deployment.
    - Passes: the dialog tests, the Prana tests, replay-equals-live, and **a build on the Pi 4**
      (aarch64: libmetis_rt, sherpa-onnx's aarch64 libs, the VAD).
    - One systemd service.
-2. **The director:**
+2. **The director** (running on Pascal since 2026-11-24: the home composed under it, catalog/domains; the tick in metis-agent, adapted from py's, not replayed byte for byte):
    - over the home's packages (scenes' fan-out as rules);
    - Live sees two cards;
    - `metisc --link` certifies.
