@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nina architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: an architecture document to read and decide on
+   IDEA a scientific plate: one large figure of the mechanism, labelled, then the text that explains it
+   PICTURE the layers of Nina, with the event log as the spine every arrow crosses
+   COLOUR white / night ink; carmine for the log (the source of truth), prussian for Metis
+   TYPE Literata display + text, JetBrains Mono for code
+   LAYOUT title and conclusion across the top, the plate full width beneath; sections in one column of tables */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0f1217);--ink:light-dark(#10131a,#e6e8ee);--soft:light-dark(#5a6170,#9aa3b5);--rule:light-dark(#d9dde5,#2a303b);--panel:light-dark(#f4f6f9,#161b23);--log:light-dark(#c1121f,#ff6b6b);--metis:light-dark(#0b4f8a,#6fb3f2);--logbg:light-dark(#fdecee,#2a1416);--metisbg:light-dark(#e8f1fa,#122336)}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html{scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16.5px/1.6 Literata,Georgia,serif;overflow-x:clip}
+.band{padding:clamp(28px,4vw,56px) max(5vw,16px)}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-weight:600;font-size:clamp(32px,4.6vw,50px);line-height:1.05;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+h2{font-weight:600;font-size:clamp(24px,2.6vw,30px);line-height:1.15;letter-spacing:-.01em;margin:0 0 12px;text-wrap:balance}
+h3{font-weight:600;font-size:19px;margin:26px 0 8px}
+p{max-width:70ch;margin:0 0 12px}
+.lede{font-size:clamp(17px,1.6vw,20px);max-width:62ch;margin-bottom:6px}
+.meta{color:var(--soft);font-size:14px;margin:0}
+.meta a{color:inherit}
+nav.scroll{display:flex;gap:6px 18px;flex-wrap:wrap;font-size:15px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:10px max(5vw,16px);background:var(--bg)}
+nav a{color:var(--ink);text-decoration:none;white-space:nowrap;padding:6px 0}
+nav a:hover,nav a:focus-visible{color:var(--log);outline:none;text-decoration:underline}
+@media(min-width:900px){nav.scroll{position:sticky;top:0;z-index:2}}
+.plate{overflow-x:auto;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--panel)}
+.plate figure{margin:0 auto;max-width:1180px;padding:18px max(2vw,12px) 8px}
+.plate svg{display:block;width:100%;min-width:760px;height:auto;color:var(--ink)}
+figcaption{font-size:14px;color:var(--soft);max-width:80ch;padding:6px 0 10px}
+svg text{font-family:Literata,Georgia,serif;fill:currentColor}
+svg .l,svg .lr,svg .lm{paint-order:stroke;stroke:var(--panel);stroke-width:4px}
+svg .box{fill:var(--bg);stroke:currentColor;stroke-width:1.2}
+svg .logbox{fill:var(--logbg);stroke:var(--log);stroke-width:2}
+svg .mbox{fill:var(--metisbg);stroke:var(--metis);stroke-width:1.6}
+svg .node{fill:var(--bg);stroke:var(--metis);stroke-width:1.2}
+svg .t{font-size:15px;font-weight:600}
+svg .s{font-size:12px;fill:var(--soft)}
+svg .l{font-size:12.5px}
+svg .lr{font-size:12.5px;fill:var(--log)}
+svg .lm{font-size:12.5px;fill:var(--metis)}
+svg .ln{stroke:currentColor;stroke-width:1.3;fill:none}
+svg .lnr{stroke:var(--log);stroke-width:1.6;fill:none}
+svg .lnm{stroke:var(--metis);stroke-width:1.6;fill:none}
+svg .ar{fill:currentColor}
+svg .arr{fill:var(--log)}
+svg .arm{fill:var(--metis)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:22px 40px}
+.callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px 28px;margin-top:6px}
+.callouts div{border-top:2px solid var(--rule);padding-top:8px;font-size:15px}
+.callouts b{display:block;font-size:16px}
+.callouts .r{border-color:var(--log)}
+.callouts .m{border-color:var(--metis)}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:8px 0 18px}
+th{text-align:left;font-weight:600;border-bottom:1.5px solid var(--ink);padding:7px 10px 7px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--rule);padding:8px 10px 8px 0;vertical-align:top}
+td:first-child{font-weight:600}
+.tbl{overflow-x:auto}
+code,pre{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13.5px}
+code{overflow-wrap:anywhere;background:var(--panel);padding:1px 4px;border-radius:3px}
+pre{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);padding:14px 16px;border-radius:4px;line-height:1.5;margin:8px 0 6px}
+.codehead{display:flex;justify-content:flex-end;margin-top:8px}
+.copy{font:14px Literata,serif;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:4px;min-height:36px;padding:4px 12px;cursor:pointer}
+.copy:hover,.copy:focus-visible{border-color:var(--log);outline:none}
+ul,ol{padding-left:1.25em;max-width:72ch;margin:0 0 12px}
+li{margin:4px 0}
+.flow td:nth-child(2){white-space:nowrap}
+.ms{list-style:none;padding:0;max-width:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px}
+.ms li{margin:0;border-left:3px solid var(--rule);padding:2px 0 2px 14px;font-size:15px}
+.ms li:first-child{border-color:var(--log)}
+.ms b{display:block;font-size:17px;margin-bottom:2px}
+.decide{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:16px 20px}
+.decide ol{margin:0}
+.tag{font-size:13px;color:var(--log);font-weight:600}
+.tagm{font-size:13px;color:var(--metis);font-weight:600}
+a{color:var(--metis)}
+@media(max-width:600px){table{font-size:13.5px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--rule)}.stack td{display:block;border:0;padding:3px 0}.stack td::before{content:attr(data-l);display:block;font-size:12.5px;color:var(--soft);font-weight:400}.flow td:nth-child(2){white-space:normal}}
+@media(prefers-reduced-motion:no-preference){svg .flowdash{stroke-dasharray:5 5;animation:run 1.6s linear infinite}@keyframes run{to{stroke-dashoffset:-20}}}
+</style>
+<script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
+</head>
+<body>
+
+<header class="band" style="padding-bottom:18px">
+<div class="wrap">
+<h1>Nina: one log, two reasoning loops</h1>
+<p class="lede">Nina is a personal agent, and speech is one way to reach her. Everything that happens goes into one SQLite event log. The semantic world is rebuilt from that log. Metis reasons over it on its own clock, and pi does the open-ended work. Every tool is a member of one Metis composition.</p>
+<p class="meta">Refactoring step, 24 November 2026 · design, nothing built yet · source: <a href="https://github.com/ibnHatab/nina-live/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a></p>
+</div>
+</header>
+
+<div class="plate">
+<figure>
+<svg viewBox="0 0 1000 640" role="img" aria-label="Nina's layers: the channels and fsttm-live on top, Gemini Live and pi below them, the event log across the middle that every arrow crosses, Metis's composition and the semantic world under it, and the Home Assistant tool at the bottom.">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0,0L10,5L0,10z"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arr" d="M0,0L10,5L0,10z"/></marker>
+<marker id="am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arm" d="M0,0L10,5L0,10z"/></marker>
+</defs>
+<!-- row 1: channels -->
+<rect class="box" x="40" y="20" width="150" height="56" rx="6"/>
+<text class="t" x="115" y="45" text-anchor="middle">You</text>
+<text class="s" x="115" y="63" text-anchor="middle">a voice in the room</text>
+<rect class="box" x="240" y="20" width="390" height="56" rx="6"/>
+<text class="t" x="435" y="44" text-anchor="middle">fsttm-live: how she talks</text>
+<text class="s" x="435" y="63" text-anchor="middle">floor machine · attention · local wake word · ears · voice</text>
+<rect class="box" x="680" y="20" width="280" height="56" rx="6"/>
+<text class="t" x="820" y="44" text-anchor="middle">Panel · buttons</text>
+<text class="s" x="820" y="63" text-anchor="middle">nina-live's channels</text>
+<line class="ln" x1="190" y1="48" x2="236" y2="48" marker-end="url(#a)" marker-start="url(#a)"/>
+<line class="ln" x1="300" y1="76" x2="300" y2="126" marker-end="url(#a)"/>
+<text class="l" x="308" y="106">turns</text>
+<line class="ln" x1="820" y1="76" x2="820" y2="126" marker-end="url(#a)"/>
+<text class="l" x="828" y="106">tasks · status</text>
+<!-- row 2: the two LLM loops -->
+<rect class="box" x="40" y="130" width="420" height="70" rx="6"/>
+<text class="t" x="250" y="158" text-anchor="middle">Gemini Live · System 1</text>
+<text class="s" x="250" y="178" text-anchor="middle">fast: two cards (director + attended specialist), delegate(goal)</text>
+<rect class="box" x="540" y="130" width="420" height="70" rx="6"/>
+<text class="t" x="750" y="158" text-anchor="middle">pi · System 2</text>
+<text class="s" x="750" y="178" text-anchor="middle">sky-valley/pi: one Agent per task, card verbs as AgentTools</text>
+<!-- row 2 to 3 -->
+<line class="ln" x1="110" y1="200" x2="110" y2="256" marker-end="url(#a)"/>
+<text class="l" x="118" y="234">heard · said · verbs</text>
+<line class="lnm" x1="360" y1="258" x2="360" y2="202" marker-end="url(#am)"/>
+<text class="lm" x="368" y="234">context · NOTE</text>
+<line class="lnm" x1="600" y1="258" x2="600" y2="202" marker-end="url(#am)"/>
+<text class="lm" x="608" y="234">task · state · Steer</text>
+<line class="ln" x1="900" y1="200" x2="900" y2="256" marker-end="url(#a)"/>
+<text class="l" x="892" y="234" text-anchor="end">messages · verbs</text>
+<!-- row 3: the log -->
+<rect class="logbox flowdash" x="40" y="260" width="920" height="64" rx="6"/>
+<text class="t" x="60" y="288" style="fill:var(--log)">Event log · SQLite, append only</text>
+<text class="s" x="60" y="309">every arrow crosses it: replay rebuilds the world, the episodes, the tasks</text>
+<text class="lr" x="940" y="288" text-anchor="end">heard · intent · command · ha_state</text>
+<text class="lr" x="940" y="309" text-anchor="end">settle · conclude · task · said · report</text>
+<!-- row 3 to 4 -->
+<line class="lnr" x1="200" y1="324" x2="200" y2="386" marker-end="url(#ar)"/>
+<text class="lr" x="208" y="360">intent · beat</text>
+<line class="lnm" x1="440" y1="388" x2="440" y2="328" marker-end="url(#am)"/>
+<text class="lm" x="448" y="360">conclude · command · task(goal)</text>
+<line class="lnr" x1="790" y1="324" x2="790" y2="386" marker-end="url(#ar)"/>
+<text class="lr" x="798" y="360">apply (one writer)</text>
+<!-- row 4: Metis and the world -->
+<rect class="mbox" x="130" y="390" width="440" height="114" rx="6"/>
+<text class="t" x="148" y="414" style="fill:var(--metis)">Metis composition</text>
+<text class="s" x="148" y="432">its own loop: beats, concludes, refuses</text>
+<rect class="node" x="390" y="400" width="160" height="28" rx="14"/>
+<text class="l" x="470" y="419" text-anchor="middle">nina · director</text>
+<g>
+<rect class="node" x="150" y="462" width="88" height="28" rx="14"/><text class="l" x="194" y="481" text-anchor="middle">home</text>
+<rect class="node" x="254" y="462" width="88" height="28" rx="14"/><text class="l" x="298" y="481" text-anchor="middle">web</text>
+<rect class="node" x="358" y="462" width="96" height="28" rx="14"/><text class="l" x="406" y="481" text-anchor="middle">memory</text>
+<rect class="node" x="470" y="462" width="88" height="28" rx="14"/><text class="l" x="514" y="481" text-anchor="middle">tasks</text>
+</g>
+<path class="lnm" d="M470 428 V446 H194 V460 M298 446 V460 M406 446 V460 M514 446 V460"/>
+<rect class="box" x="640" y="390" width="320" height="114" rx="6"/>
+<text class="t" x="800" y="418" text-anchor="middle">Semantic world</text>
+<text class="s" x="800" y="438" text-anchor="middle">beliefs with source, confidence, age</text>
+<text class="s" x="800" y="456" text-anchor="middle">a projection of the log</text>
+<text class="s" x="800" y="474" text-anchor="middle">snapshots are a cache</text>
+<line class="lnm" x1="640" y1="470" x2="574" y2="470" marker-end="url(#am)"/>
+<text class="lm" x="607" y="460" text-anchor="middle">ports</text>
+<!-- row 4 to 5 -->
+<line class="ln" x1="194" y1="504" x2="194" y2="556" marker-end="url(#a)"/>
+<text class="l" x="202" y="536">command → REST</text>
+<line class="lnr" x1="70" y1="558" x2="70" y2="328" marker-end="url(#ar)"/>
+<text class="lr" x="78" y="536">ha_state</text>
+<!-- row 5: the home -->
+<rect class="box" x="40" y="560" width="380" height="56" rx="6"/>
+<text class="t" x="230" y="584" text-anchor="middle">acasa · the Home Assistant tool</text>
+<text class="s" x="230" y="603" text-anchor="middle">feed · commands (one fan per call) · home map</text>
+<rect class="box" x="500" y="560" width="260" height="56" rx="6"/>
+<text class="t" x="630" y="584" text-anchor="middle">Home Assistant</text>
+<text class="s" x="630" y="603" text-anchor="middle">container · Prana · lights</text>
+<line class="ln" x1="420" y1="580" x2="496" y2="580" marker-end="url(#a)"/>
+<line class="ln" x1="496" y1="598" x2="424" y2="598" marker-end="url(#a)"/>
+<text class="l" x="458" y="574" text-anchor="middle">REST</text>
+<text class="l" x="458" y="614" text-anchor="middle">websocket</text>
+</svg>
+<figcaption>Every arrow writes or reads an event. Red arrows touch the log; blue ones are Metis's outputs to the LLMs. Gemini Live and pi never reach Home Assistant: only a rule's <code>command</code> does, through acasa's effector.</figcaption>
+</figure>
+</div>
+
+<nav class="scroll" aria-label="sections">
+<a href="#roles">Roles</a><a href="#log">Event log</a><a href="#metis">Metis and pi</a><a href="#flows">Dataflows</a><a href="#facade">fsttm-live facade</a><a href="#layout">Layout</a><a href="#milestones">Milestones</a><a href="#decide">Decisions</a>
+</nav>
+
+<main>
+<section class="band"><div class="wrap">
+<div class="callouts">
+<div class="r"><b>One source of truth</b>The log. The world, the episodes, the tasks and the preferences are projections of it, and a replay must reproduce the live world at every checkpoint.</div>
+<div class="m"><b>Two reasoning loops</b>Metis beats on its own clock and pushes what it concludes. The LLMs propose; only rules act.</div>
+<div><b>One composition of tools</b>Each tool family is a specialist under a director. <code>metisc --link</code> certifies the whole set.</div>
+<div><b>No policy in hooks</b>pi's <code>Steer</code> and a read-only <code>TransformContext</code> carry Metis into a run. Gating is in the rules, not in <code>BeforeToolCall</code>.</div>
+</div>
+</div></section>
+
+<section class="band" id="roles" style="padding-top:0"><div class="wrap">
+<h2>Each project has one role</h2>
+<p>Dependencies point one way, from nina-live outward. There is one process, <code>nina</code>, beside Home Assistant. <code>metis-home</code> and its two TCP ports go away.</p>
+<div class="tbl"><table class="stack">
+<thead><tr><th>Project</th><th>Role</th><th>Owns</th><th>Gives up</th></tr></thead>
+<tbody>
+<tr><td>nina-live (new)</td><td>the agent runtime</td><td>the event log and its projections, pi's agent, the Metis composition, the tool registry, the channels (voice, panel, buttons), the scheduler, <code>cmd/nina</code></td><td></td></tr>
+<tr><td>fsttm-live</td><td>the dialogue library</td><td>the floor machine, attention, audio, endpointing, the local wake word, Gemini Live (ears and System 1 voice), the local voices; <code>pkg/dialogue</code>; <code>cmd/fsttm-live</code> as a test harness</td><td>the plugin host, the panel, the buttons, the preferences file, the Metis adapter</td></tr>
+<tr><td>sky-valley/pi</td><td>the agent loop, System 2</td><td><code>agent</code>, <code>ai</code>, <code>ai/providers</code>; pinned, unmodified</td><td></td></tr>
+<tr><td>metis-lang</td><td>the language</td><td><code>metisc</code>, <code>libmetis_rt</code>, specs 15 (compositions, interface packages), 16 (beliefs, levels), 17 (images)</td><td></td></tr>
+<tr><td>metis-agent</td><td>the embedding</td><td>new: a public Go package over <code>internal/rt</code>; the Go director tick (specialists, then the director)</td><td>the <code>metis-home</code> binary</td></tr>
+<tr><td>semantic-world</td><td>the world model</td><td><code>semworld</code> and the <code>home</code> adapter; new: <code>Apply(Event)</code>, deterministic replay, a checkpoint hash</td><td>its JSON-file <code>Store</code></td></tr>
+<tr><td>metis-worlds, metis-catalog</td><td>the domains</td><td>the home packages, the director base; new: nina's director instance and one specialist per tool family</td><td></td></tr>
+<tr><td>acasa</td><td>the home</td><td>the Home Assistant tool (feed, commands, home map), metis-home's families and views, the deployment</td><td>two services become one</td></tr>
+</tbody></table></div>
+</div></section>
+
+<section class="band" id="log" style="padding-top:0"><div class="wrap">
+<h2>The world is a function of its events, and nothing else</h2>
+<div class="two">
+<div>
+<p>One SQLite file in WAL mode, append only. The <code>seq</code> orders it; <code>at</code> is world time, the <code>now</code> every world call already takes.</p>
+<div class="codehead"><button class="copy" data-for="schema" type="button">Copy</button></div>
+<pre id="schema">CREATE TABLE events (
+  seq    INTEGER PRIMARY KEY,  -- the order replay trusts
+  at     REAL    NOT NULL,     -- world time (s)
+  stream TEXT    NOT NULL,     -- world | dialog | agent | task | prefs | sys
+  kind   TEXT    NOT NULL,
+  key    TEXT,                 -- entity/var, task id, utterance id
+  cause  TEXT,                 -- the turn, tool call or rule behind it
+  data   TEXT    NOT NULL,     -- JSON
+  v      INTEGER NOT NULL      -- the kind's schema version
+);
+CREATE TABLE snapshots (seq INTEGER PRIMARY KEY, code TEXT, hash TEXT, blob BLOB);
+CREATE VIRTUAL TABLE episodes USING fts5(text, kind, at UNINDEXED, seq UNINDEXED);</pre>
+</div>
+<div>
+<h3 style="margin-top:0">The world stream: its input alphabet</h3>
+<div class="tbl"><table class="stack">
+<thead><tr><th>Kind</th><th>Applied as</th></tr></thead>
+<tbody>
+<tr><td>genesis</td><td>the map, params and manifests: <code>home.New</code>, <code>Board.Join</code></td></tr>
+<tr><td>ha_state</td><td><code>Home.Ingest</code>, mapped entities only</td></tr>
+<tr><td>feed_down, feed_up</td><td><code>Home.FeedDown</code></td></tr>
+<tr><td>command</td><td><code>Home.Command</code>, written before the REST call</td></tr>
+<tr><td>report</td><td><code>World.Report</code>: a person's word</td></tr>
+<tr><td>conclude</td><td><code>World.Conclude</code>: a member's fact</td></tr>
+<tr><td>settle</td><td><code>Home.Settle</code>, once a beat</td></tr>
+<tr><td>checkpoint</td><td>not applied: replay verifies its hash</td></tr>
+</tbody></table></div>
+</div>
+</div>
+<h3>The determinism contract</h3>
+<ol>
+<li><b>Time is an argument.</b> The world never reads the clock, and <code>semworld</code> has no <code>time.Now</code> already. The old journal's wall-clock stamp goes with the store.</li>
+<li><b>No map order.</b> Three loops in <code>home.go</code> (lines 345, 419, 458) walk Go maps; they move to sorted keys, so surprises replay in the same order.</li>
+<li><b>Listeners are pure.</b> <code>OnChange</code> subscribers only read. Any write is an event.</li>
+<li><b>One writer.</b> Only the apply loop changes the world. The feed, the tools and Metis append events.</li>
+<li><b>Tests hold it.</b> Replay equals live at every checkpoint, golden logs replay to golden lines, and snapshot plus tail equals genesis replay. A new code version drops the snapshots and replays from genesis.</li>
+</ol>
+<p>The other streams are episodic memory: dialog (<code>heard</code>, <code>turn</code>, <code>said</code>, <code>cut</code>, <code>note</code>, <code>attention</code>), agent (pi's <code>message_end</code>, replacing its JSONL sessions), task, and prefs. <b>Every conversation is kept,</b> for mining.</p>
+</div></section>
+
+<section class="band" id="metis" style="padding-top:0"><div class="wrap">
+<h2>Metis is a second reasoning loop, not a tool</h2>
+<p>A tool runs when the LLM calls it. Metis beats on its own clock and on every change of the ports it reads, and its conclusions change what both LLMs know next. Each tool is <i>represented</i> in one hierarchical composition, metis-catalog's director lifted. A tool is not backed by a domain of its own.</p>
+<div class="two">
+<div>
+<h3 style="margin-top:0">The composition</h3>
+<pre>nina (director)
+├── home (director, nested)
+│   ├── lights  air  media  comfort
+│   └── scenes  (fan-out as rules, not homeSweeps)
+├── web      (search, fetch: read-only)
+├── memory   (recall over the episodes)
+├── tasks    (delegate, status, cancel)
+└── iface/   nina.llp · home_world.llp · protocol</pre>
+<p style="font-size:15px">A read-only family gets a thin specialist generated from its schema. Its Go function is the host's effector for <code>call(...)</code>, and its result comes back as an <code>in</code> line.</p>
+</div>
+<div>
+<h3 style="margin-top:0">What each LLM receives</h3>
+<div class="tbl"><table class="stack">
+<thead><tr><th>Metis output</th><th>Gemini Live</th><th>pi, a running task</th></tr></thead>
+<tbody>
+<tr><td>current beliefs</td><td>silent context, keyed</td><td><code>TransformContext</code>, replaced each request</td></tr>
+<tr><td>new conclusion</td><td>context, or a NOTE by level</td><td><code>Steer</code>, after the tool batch</td></tr>
+<tr><td>surprise</td><td>a NOTE past the knob</td><td><code>Steer</code>, or starts a task</td></tr>
+<tr><td>refusal</td><td>the tool's result</td><td>the tool's result</td></tr>
+<tr><td>later outcome</td><td>a NOTE</td><td><code>FollowUp</code> or <code>Steer</code></td></tr>
+</tbody></table></div>
+</div>
+</div>
+<h3>Which pi mechanisms, and why</h3>
+<div class="tbl"><table class="stack">
+<thead><tr><th>pi mechanism</th><th>Used</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>Steer</code>, <code>FollowUp</code></td><td>yes</td><td>messages from outside the run: conclusions, outcomes, notes</td></tr>
+<tr><td><code>TransformContext</code></td><td>yes, read-only</td><td>the current world projection before each request; it decides nothing</td></tr>
+<tr><td><code>BeforeToolCall</code></td><td>no</td><td>every acting tool is a Metis verb: submitting is the check and a refusal is the result. A separate validate would run the rules twice, and the world can change in between.</td></tr>
+<tr><td><code>AfterToolCall</code></td><td>no</td><td>a result already enters Metis, and so the log, through its effector</td></tr>
+<tr><td><code>FinishTurn</code></td><td>later</td><td>it could keep a task running until its goal atom is concluded</td></tr>
+</tbody></table></div>
+<p><b>Autonomy:</b> a rule whose conclusion needs deliberation emits <code>task(goal, level)</code>, and Nina starts a pi run with no one having asked. If a task on the same specialists is already running, the conclusion is steered into it instead. Relevance comes from the composition: a task only receives the lines of the specialists it attended.</p>
+<p><b>Missing today:</b></p>
+<ul>
+<li>a Go director tick (the hierarchical tick runs only in the Python service);</li>
+<li>a public embedding package in metis-agent;</li>
+<li>generating specialists and <code>handles/2</code> from tool schemas.</li>
+</ul>
+</div></section>
+
+<section class="band" id="flows" style="padding-top:0"><div class="wrap">
+<h2>Seven dataflows, every arrow an event</h2>
+<div class="tbl"><table class="stack flow">
+<thead><tr><th>#</th><th>Flow</th><th>Path</th></tr></thead>
+<tbody>
+<tr><td>F1</td><td>A spoken command</td><td>ReSpeaker → fsttm-live → <code>heard</code> → Gemini Live → a card's verb → <code>intent</code> → tick → rule → <code>command</code> → acasa (REST) → <code>ha_state</code> → world → the tool's result → <code>said</code></td></tr>
+<tr><td>F2</td><td>An observation</td><td>HA websocket → <code>ha_state</code> → apply → world → <code>settle</code> → members wake → <code>conclude</code> → Live's context, a NOTE by level, <code>Steer</code> into a running task</td></tr>
+<tr><td>F3</td><td>A delegated goal</td><td><code>delegate(goal)</code> → <code>task created</code> → pi run (world by <code>TransformContext</code>, recalled episodes) → card verbs as F1 → <code>task done</code> → a NOTE when the floor is free</td></tr>
+<tr><td>F4</td><td>Autonomy</td><td>a member's conclusion → <code>task(goal, level)</code> → as F3, unasked; or <code>Steer</code> into the running task</td></tr>
+<tr><td>F5</td><td>A person's word</td><td>"I switched the lamp off" → routed as a report → <code>report</code>, weak evidence → world; against a sure fresh sensor it is an evidential surprise</td></tr>
+<tr><td>F6</td><td>Rebuild</td><td>snapshot of this code version plus the tail, or genesis → world and every projection; the Live session's context rebuilt from them</td></tr>
+<tr><td>F7</td><td>Mining</td><td>a scheduled pi task reads episodes, surprises and the director's <code>nohandler</code> → proposals for new tools and rules → metis-loop's gates → the person approves → a new image, and the world replays</td></tr>
+</tbody></table></div>
+<h3>What checking the flows changed</h3>
+<ul>
+<li><b>Metis over TCP first:</b> no. A world inside metis-home is written by metis-home, not by the log. A one-day spike over the old ports is fine to try <code>Steer</code> against a real run, but milestone 1 is in-process.</li>
+<li><b>A <code>ReasoningSystem</code> interface</b> maps onto what exists, with one call fewer:
+<ul>
+<li><code>Observe</code> is an append.</li>
+<li><code>Infer</code> is the beat, which no LLM calls.</li>
+<li><code>Snapshot</code> is the projection, filtered to a scope.</li>
+<li><code>Events</code> is the log's subscription.</li>
+<li><code>Validate</code> is dropped: the verb is the check.</li>
+</ul></li>
+<li><b>pi's listeners run on its loop goroutine</b> (<code>agent.go:701</code>). The one that logs messages only queues them, and the SQLite write happens on the log's own goroutine.</li>
+</ul>
+</div></section>
+
+<section class="band" id="facade" style="padding-top:0"><div class="wrap">
+<h2>fsttm-live keeps only the dialogue</h2>
+<div class="two">
+<div>
+<div class="codehead"><button class="copy" data-for="facade-code" type="button">Copy</button></div>
+<pre id="facade-code">package dialogue // fsttm-live/pkg/dialogue
+
+func Start(ctx, Config, Tools func() []Tool) (*Dialogue, error)
+func (d *Dialogue) Events() &lt;-chan Event  // heard, turn, said, cut, attention
+func (d *Dialogue) Note(level, text string)
+func (d *Dialogue) Context(key, line string)
+func (d *Dialogue) Do(action, arg string) error
+func (d *Dialogue) SetPrefs(Prefs) error</pre>
+<p style="font-size:15px"><code>Tools</code> is asked again when attention moves, so Gemini Live always holds the director's card and the attended specialist's.</p>
+</div>
+<div class="tbl"><table class="stack">
+<thead><tr><th>From fsttm-live</th><th>To nina-live</th></tr></thead>
+<tbody>
+<tr><td><code>internal/nina</code></td><td><code>channels/voice</code>, over <code>pkg/dialogue</code>; prefs as a projection</td></tr>
+<tr><td><code>internal/sources/metis.go</code></td><td>gone: the composition is in-process</td></tr>
+<tr><td><code>internal/plugins/web</code></td><td><code>channels/web</code>: dialogue, tasks, the world</td></tr>
+<tr><td><code>internal/plugins/gpio</code></td><td><code>channels/gpio</code></td></tr>
+<tr><td>prefs, plugins, sources config</td><td>nina-live's config</td></tr>
+<tr><td><code>charter-v2.txt</code></td><td>split: floor rules stay; identity, home and tasks move</td></tr>
+</tbody></table></div>
+</div>
+</div></section>
+
+<section class="band" id="layout" style="padding-top:0"><div class="wrap">
+<h2>nina-live's layout</h2>
+<pre>nina-live/
+├── cmd/nina/               config, log, projections, composition, channels
+├── log/                    SQLite: Append, Read(from), Subscribe; snapshots
+├── world/                  the apply loop; checkpoints; a replay tool
+├── memory/                 episodes (FTS5), recall; prefs; transcripts
+├── metis/                  the image, the director tick, cards → registry
+├── tools/                  one neutral Tool; adapters for genai and pi
+│   └── web/ memory/ tasks/ the specialists' Go effectors
+├── agent/                  pi: one Agent per task; results → notes
+├── tasks/ sched/           tasks; the scheduler (a stream, so replay sees it)
+├── channels/voice web gpio/
+└── domains/nina/           the director instance, specialists, iface/nina.llp</pre>
+<p>acasa supplies <code>hass/</code> (the feed becomes <code>ha_state</code> events, and the REST calls are the home specialists' effectors), <code>home/</code> (metis-home's families and views), and the deployment.</p>
+</div></section>
+
+<section class="band" id="milestones" style="padding-top:0"><div class="wrap">
+<h2>Milestone 1 is today's Nina, rebuilt in the new layout</h2>
+<ol class="ms">
+<li><b>1. Same Nina, new layout</b><code>cmd/nina</code> runs fsttm-live through the facade, with the home packages flat on the embedded runtime and the world built from the log. Passes: the dialog tests, the Prana tests, replay equals live, and a build on the Pi 4 (aarch64). It runs as one service.</li>
+<li><b>2. The director</b>The director runs over the home's packages, with scenes' fan-out as rules. Gemini Live sees two cards, and <code>metisc --link</code> certifies the set.</li>
+<li><b>3. System 2</b>pi runs <code>delegate</code>, with tasks whose results come back as notes. Web and memory become specialists, and the transcripts go in the log.</li>
+<li><b>4. The rest</b>The scheduler arrives, and pi's <code>SKILL.md</code> skills are given programmatically. Calendar and mail become specialists, and MCP serves outside clients.</li>
+</ol>
+</div></section>
+
+<section class="band" id="decide" style="padding-top:0"><div class="wrap">
+<div class="two">
+<div>
+<h2>Decided</h2>
+<ul>
+<li>nina-live is public under ibnHatab, and fsttm-live is public too.</li>
+<li>Both modules move to Go 1.26.0, which pi needs. fsttm-live's tests pass on it.</li>
+<li>Every conversation is kept for mining (F7). What people ask that nothing handles, and where the world surprised, feed new tools and new rules.</li>
+</ul>
+</div>
+<div class="decide">
+<h2>To decide</h2>
+<ol>
+<li>metis-agent's public package and the Go director tick: do they go on the <code>home-cgo</code> branch or on main, and who reviews them?</li>
+<li><code>TransformContext</code> (read-only) and <code>Steer</code> bend "no hooks" for the projection only. Is that the reading you meant?</li>
+</ol>
+</div>
+</div>
+<p class="meta" style="margin-top:28px">Facts this rests on, read on 24 November 2026:</p>
+<ul class="meta">
+<li><b>pi:</b> sky-valley/pi, MIT, Go 1.26, 50 commits from 14 to 23 November. Its Google provider has no Live API.</li>
+<li><b>Metis:</b> the director base is in metis-catalog; interface packages are spec 15 §10. The home world is flat by design today.</li>
+<li><b>The semantic world:</b> its writers each take <code>now</code>.</li>
+</ul>
+</div></section>
+</main>
+
+<script>
+{
+  for (const b of document.querySelectorAll('.copy')) {
+    b.addEventListener('click', async () => {
+      const t = document.getElementById(b.dataset.for)?.textContent || '';
+      try { await navigator.clipboard.writeText(t); b.textContent = 'Copied'; }
+      catch (e) { b.textContent = 'Select and copy'; }
+      setTimeout(() => { b.textContent = 'Copy'; }, 1800);
+    });
+  }
+}
+</script>
+</body>
+</html>
