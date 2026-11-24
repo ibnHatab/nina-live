@@ -67,6 +67,8 @@ type Config struct {
 	Character       string            // the home's character (default Root/character.yaml): the taste's priors, loaded when it changes
 	Glow            *glow.Host        // the glow package's host (the bedroom light through Alexa); nil when Composed: one that reaches nothing
 	Music           *music.Host       // the music package's host (MPD through Home Assistant), its taste rebuilt from the log; nil when Composed: one that plays nothing
+	Workspace       string            // the Metis loop's workspace .metis dir (default Root/domains/.metis): surprises dropped there for the pi loop
+	Records         string            // the Metis runtime's surprise records ("catalog", the default: each domain's records/ in the catalog, the formalization loop's input; "off")
 	Temperament     string            // Nina's temperament (default Root/persona.yaml; "-": none): her mood, its prompt and persona
 	// Publish puts Nina's persona where the dashboard sees it (Home Assistant's sensor.nina_persona); nil: nowhere
 	Publish func(state string, attrs map[string]any)
@@ -89,6 +91,7 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
+	unseen       int // surprises since the person last asked about them
 	lastMinute   string
 	mood         *persona.Selector // Nina's temperament; nil without one
 	moodAt       time.Time
@@ -113,6 +116,9 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	}
 	if len(c.Packages) == 0 {
 		c.Packages = metishome.Packages
+	}
+	if c.Records == "" {
+		c.Records = "catalog"
 	}
 	if c.CallTimeout == 0 {
 		c.CallTimeout = 6 * time.Second
@@ -261,7 +267,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	}
 	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
-		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: "off", Hosts: hosts,
+		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: c.Records, Hosts: hosts,
 		OnSurprise:  func(domain string, r map[string]any) { k.surprise(domain, r) },
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
@@ -290,7 +296,12 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		if k.Tasks, err = tasks.New(tc); err != nil {
 			return nil, err
 		}
-		k.Explain = &explain.Explainer{Log: c.Log, Root: c.Root, Ask: k.Tasks.Ask, Persona: c.Persona, Now: c.Now}
+		ws := c.Workspace
+		if ws == "" {
+			ws = filepath.Join(c.Root, "domains", ".metis")
+		}
+		k.Explain = &explain.Explainer{Log: c.Log, Root: c.Root, Ask: k.Tasks.Ask, Persona: c.Persona, Now: c.Now,
+			WS: &explain.Workspace{Dir: expandHome(ws)}}
 	}
 	return k, nil
 }
@@ -307,28 +318,39 @@ func (k *Core) timersContext() {
 func (k *Core) surprise(domain string, r map[string]any) {
 	now := k.Cfg.Now()
 	k.Log.Append(now, "surprise", "surprise", domain, "", r, 1)
+	if k.Explain != nil && k.Explain.WS != nil { // to the Metis loop's workspace, for the pi loop to take and rule
+		if id, err := k.Explain.WS.Drop(domain, r, "", time.Unix(int64(now), 0)); err == nil {
+			k.Log.Append(now, "surprise", "dropped", domain, "", map[string]string{"id": id}, 1)
+		}
+	}
 	k.mu.Lock()
-	quiet := k.Explain == nil || now-k.lastSurprise < 180
-	if !quiet {
+	k.unseen++
+	mention := now-k.lastSurprise >= 1800 // a word about it at most every half hour; the rest when asked
+	if mention {
 		k.lastSurprise = now
 	}
 	k.mu.Unlock()
-	if quiet {
-		return
-	}
-	what, _ := json.Marshal(r)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		text, err := k.Explain.Surprise(ctx, fmt.Sprintf("in %s: %.400s", domain, what))
-		if err != nil || strings.TrimSpace(text) == "" {
-			return
-		}
-		k.Log.Append(k.Cfg.Now(), "surprise", "narrated", domain, "", map[string]string{"text": text}, 1)
+	k.surprisesNow()
+	if mention {
 		if v := k.Voice(); v != nil {
-			v.Note("info", text)
+			v.Note("info", fmt.Sprintf("Something in the %s surprised you just now (its rules did not expect it). Mention it in a few words when the moment is quiet; the person can ask what surprised you.", domain))
 		}
-	}()
+	}
+}
+
+// surprisesNow tells Nina's screen how many surprises the person has not heard about, and how
+// many of the domains' records are still open (her card's ⚑).
+func (k *Core) surprisesNow() {
+	k.mu.Lock()
+	unseen := k.unseen
+	k.mu.Unlock()
+	open := 0
+	if k.Explain != nil && k.Explain.WS != nil {
+		open = explain.Counts(k.Explain.WS.List())["open"]
+	}
+	if l, ok := k.Voice().(interface{ Log(string, map[string]any) }); ok {
+		l.Log("surprises", map[string]any{"unseen": unseen, "open": open})
+	}
 }
 
 // clock gives the voice the time, once a minute: its session knows no clock of its own (it said
@@ -461,23 +483,39 @@ func (k *Core) routines() {
 
 // ExplainTool is "explain yourself" as a tool: the voice's and the tasks'.
 func (k *Core) ExplainTool() tasks.Tool {
-	return tasks.Tool{Name: "explain", Domain: "explain",
-		Description: "Explain what the home did and why: the rules each part of the home followed, how one part's decision reached another, what surprised it. Use it when the person asks why something happened, what something means, or to explain yourself.",
+	return tasks.Tool{Name: "narrate", Domain: "explain",
+		Description: "Narrate yourself from the home's trace and its rules' comments (Metis's narrate). intent NARRATE: \"narrate\", \"explain what you did\" (focus recent: the last minutes in order), \"why did you do that?\" (focus last: only the last thing the home did and what led to it). intent SURPRISES: \"what surprised you?\": where the rules did not expect what happened, and where the loop is with it. Say the answer as it comes back, in full.",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
+			"intent":   map[string]any{"type": "string", "enum": []string{"NARRATE", "SURPRISES"}},
+			"focus":    map[string]any{"type": "string", "enum": []string{"last", "recent"}, "description": "NARRATE: last for \"why did you do that?\", recent for the last minutes"},
 			"question": map[string]any{"type": "string", "description": "the person's question, in their words"},
-			"minutes":  map[string]any{"type": "number", "description": "how far back to look (default 10)"}}},
+			"minutes":  map[string]any{"type": "number", "description": "NARRATE recent: how far back (default 10)"}},
+			"required": []string{"intent"}},
 		Call: func(ctx context.Context, args map[string]any) (string, string) {
 			if k.Explain == nil {
-				return "error", "no model to explain with"
+				return "error", "no model to narrate with"
 			}
 			q, _ := args["question"].(string)
-			if q == "" {
-				q = "Explain what you just did and why."
-			}
 			m, _ := args["minutes"].(float64)
 			c, cancel := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel()
-			text, err := k.Explain.Explain(c, q, m)
+			var text string
+			var err error
+			switch intent, _ := args["intent"].(string); {
+			case intent == "SURPRISES":
+				text, err = k.Explain.Surprises(c, q)
+				k.mu.Lock()
+				k.unseen = 0 // the person has heard them
+				k.mu.Unlock()
+				k.surprisesNow()
+			case args["focus"] == "last":
+				text, err = k.Explain.Why(c, q)
+			default:
+				if q == "" {
+					q = "Narrate what you did, in order, and why."
+				}
+				text, err = k.Explain.Explain(c, q, m)
+			}
 			if err != nil {
 				return "error", err.Error()
 			}
@@ -556,6 +594,7 @@ func (k *Core) SetVoice(v Voice) {
 	k.voice = v
 	k.mu.Unlock()
 	k.timersContext()
+	go func() { time.Sleep(5 * time.Second); k.surprisesNow() }() // the open records, to her screen
 }
 
 func (k *Core) Voice() Voice {
@@ -744,4 +783,12 @@ func (k *Core) Recall() tasks.Tool {
 			}
 			return "done", strings.TrimSpace(b.String())
 		}}
+}
+
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		h, _ := os.UserHomeDir()
+		return filepath.Join(h, p[2:])
+	}
+	return p
 }

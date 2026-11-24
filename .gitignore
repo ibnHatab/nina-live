@@ -3,3 +3,5 @@ catalog/domains/*/build/
 catalog/domains/build/
 __pycache__/
 runs/
+catalog/domains/*/records/
+catalog/domains/.metis/
