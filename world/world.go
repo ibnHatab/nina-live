@@ -45,11 +45,12 @@ type Config struct {
 
 // World is the home's world, kept by the log.
 type World struct {
-	Home *semhome.Home
-	Log  *nlog.Log
-	cfg  Config
-	mu   sync.Mutex
-	n    int // settles since the last checkpoint
+	Home    *semhome.Home
+	Log     *nlog.Log
+	cfg     Config
+	mu      sync.Mutex
+	n       int // settles since the last checkpoint
+	genesis string
 	// OnOut sees every applied event and its outputs (the members' lines, the projection, the
 	// surprises), live and never during the rebuild.
 	OnOut func(ev semhome.Event, out semhome.Out)
@@ -77,9 +78,13 @@ type memberRec struct {
 	Name, Hash string
 }
 
+// checkpoint: the world's hash under the code and the genesis that computed it; a rebuild checks
+// only the checkpoints of its own code and genesis (another map or other manifests give another
+// world from the same events, rightly)
 type checkpoint struct {
-	Code string `json:"code"`
-	Hash string `json:"hash"`
+	Code    string `json:"code"`
+	Genesis string `json:"genesis"`
+	Hash    string `json:"hash"`
 }
 
 // Open builds the world from its configuration and the log's world stream.
@@ -124,7 +129,7 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 		Mem  []memberRec
 	}{g.MapHash, g.Code, g.Params, g.Members})
 	g.GenesisH = digest(gb)
-	w := &World{Home: h, Log: l, cfg: c}
+	w := &World{Home: h, Log: l, cfg: c, genesis: g.GenesisH}
 
 	last := ""
 	err = l.Read(ctx, 0, func(e nlog.Event) error {
@@ -136,7 +141,7 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 			}
 		case "checkpoint":
 			var x checkpoint
-			if json.Unmarshal(e.Data, &x) == nil && x.Code == c.Code {
+			if json.Unmarshal(e.Data, &x) == nil && x.Code == c.Code && x.Genesis == g.GenesisH {
 				rep.Checked++
 				if h.Hash() != x.Hash {
 					rep.Mismatch = append(rep.Mismatch, e.Seq)
@@ -188,7 +193,7 @@ func (w *World) Apply(ev semhome.Event) (semhome.Out, error) {
 	if ev.Kind == "settle" {
 		if w.n++; w.n >= w.cfg.Every {
 			w.n = 0
-			if _, err := w.Log.Append(ev.At, Stream, "checkpoint", "", "", checkpoint{w.cfg.Code, w.Home.Hash()}, 1); err != nil {
+			if _, err := w.Log.Append(ev.At, Stream, "checkpoint", "", "", checkpoint{w.cfg.Code, w.genesis, w.Home.Hash()}, 1); err != nil {
 				return out, err
 			}
 		}
@@ -203,7 +208,7 @@ func (w *World) Apply(ev semhome.Event) (semhome.Out, error) {
 func (w *World) Checkpoint(at float64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_, err := w.Log.Append(at, Stream, "checkpoint", "", "", checkpoint{w.cfg.Code, w.Home.Hash()}, 1)
+	_, err := w.Log.Append(at, Stream, "checkpoint", "", "", checkpoint{w.cfg.Code, w.genesis, w.Home.Hash()}, 1)
 	return err
 }
 

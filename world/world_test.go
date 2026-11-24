@@ -168,3 +168,21 @@ func TestRecall(t *testing.T) {
 		t.Fatalf("recall: %+v %v", got, err)
 	}
 }
+
+// TestAnotherGenesisIsNotChecked: the same events under other manifests (a member's beliefs
+// changed) give another world; its old checkpoints are not held against it.
+func TestAnotherGenesisIsNotChecked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nina.db")
+	live(t, path)
+	l, _ := nlog.Open(path)
+	defer l.Close()
+	c := cfg("test-1")
+	c.Members = nil // comfort no longer reads the world's ports
+	_, rep, err := Open(context.Background(), l, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Checked != 0 || len(rep.Mismatch) != 0 || !rep.Genesis {
+		t.Fatalf("another genesis: %+v", rep)
+	}
+}
