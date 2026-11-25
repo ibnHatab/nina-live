@@ -667,6 +667,9 @@ func (h *Host) volume() float64 {
 	return math.Max(0.02, MPDVolume(db-l.Top))
 }
 
+// Follow sets the music's volume again now (linked, playing): her duck, the knob.
+func (h *Host) Follow() { h.follow() }
+
 // follow sets the music's volume again when the knob moved (linked, playing).
 func (h *Host) follow() {
 	h.mu.Lock()

@@ -283,6 +283,7 @@ func main() {
 	if c.Music.Top != 0 && d.Calibrated() && k.Music != nil { // one knob: the music in dB from her voice's level
 		// on the core's host (rebuilt from the log at start), not the one given to it
 		k.Music.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob}
+		d.OnDuck = func(bool) { k.Music.Follow() } // a person over her: the music down with her at once
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
 	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
