@@ -269,7 +269,8 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
-	go func() { // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
+	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
+	go func() {           // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
 		last := ""
 		for range time.Tick(2 * time.Second) {
 			raw, err := ha.Call("GET", "/api/states/sensor.nina_viewer", nil)

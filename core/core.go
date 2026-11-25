@@ -91,8 +91,10 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
-	unseen       int      // surprises since the person last asked about them
-	presence     Presence // the radar's last reading
+	unseen       int       // surprises since the person last asked about them
+	presence     Presence  // the radar's last reading
+	settings     Settings  // her screens' settings (core/settings.go)
+	base         *Settings // the temperament's numbers from its file
 	lastMinute   string
 	mood         *persona.Selector // Nina's temperament; nil without one
 	moodAt       time.Time
@@ -613,6 +615,9 @@ func (k *Core) Presence(p Presence) {
 	}
 	k.Observe("presence", line)
 	k.Log.Append(k.Cfg.Now(), "presence", kind, "", "", map[string]any{"distance": p.Distance, "trend": p.Trend, "near": p.Near}, 1)
+	if l, ok := k.Voice().(interface{ Log(string, map[string]any) }); ok { // to her screens (the activity card)
+		l.Log("presence", map[string]any{"kind": kind, "distance": p.Distance, "trend": p.Trend})
+	}
 	if p.Near && !prev.Near && p.Trend != "departing" {
 		if d, ok := k.Voice().(interface{ Do(string, string) error }); ok {
 			d.Do("wake", "")
@@ -638,7 +643,7 @@ func (k *Core) SetVoice(v Voice) {
 	k.voice = v
 	k.mu.Unlock()
 	k.timersContext()
-	go func() { time.Sleep(5 * time.Second); k.surprisesNow() }() // the open records, to her screen
+	go func() { time.Sleep(5 * time.Second); k.surprisesNow(); k.loadSettings(context.Background()) }() // to her screens
 }
 
 func (k *Core) Voice() Voice {

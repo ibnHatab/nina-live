@@ -268,6 +268,14 @@ type Selector struct {
 	}
 }
 
+// Tune changes the config's numbers under the selector's lock (the settings card: the weights,
+// how long a mood holds, the margin a new one needs).
+func (s *Selector) Tune(f func(c *Config)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f(s.C)
+}
+
 // Override forces a mood until a time (an emergency's calm, a person's wish): immediate.
 func (s *Selector) Override(mood string, until time.Time) {
 	s.mu.Lock()
