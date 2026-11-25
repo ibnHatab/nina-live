@@ -280,8 +280,10 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
-	if c.Music.Top != 0 && d.Calibrated() { // one knob: the music in dB from her voice's level
-		mu.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob}
+	if c.Music.Top != 0 && d.Calibrated() && k.Music != nil { // one knob: the music in dB from her voice's level
+		// on the core's host (rebuilt from the log at start), not the one given to it
+		k.Music.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob}
+		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
 	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
 	go func() {           // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
@@ -415,6 +417,13 @@ func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 		t := t
 		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
 		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
+			if g, _ := args["genre"].(string); t.Name == "home_music" && args["intent"] == "PLAY" && g == "" {
+				// the voice gives the person's words alone ("calm"): they are the kind asked for
+				// (intent.yaml: genre is a known kind or what the person said); the mapper wants one
+				if w, _ := args["words"].(string); w != "" {
+					args["genre"] = w
+				}
+			}
 			status, text := t.Call(ctx, args)
 			return map[string]any{"status": status, "text": text}
 		}
