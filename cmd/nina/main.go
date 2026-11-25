@@ -28,6 +28,7 @@ import (
 	"github.com/ibnHatab/nina-live/core"
 	"github.com/ibnHatab/nina-live/glow"
 	nlog "github.com/ibnHatab/nina-live/log"
+	"github.com/ibnHatab/nina-live/mcp"
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/websearch"
@@ -85,6 +86,7 @@ type Config struct {
 		Key     string   `yaml:"key"`
 		Daily   int      `yaml:"daily"` // web queries a day at most
 	} `yaml:"search"`
+	MCP []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -232,6 +234,23 @@ func main() {
 		reads = append(reads, k.ExplainTool()) // the voice's and the tasks' (the loop below)
 		for _, t := range reads {
 			k.Tasks.AddTool(t)
+		}
+		for _, s := range c.MCP { // the MCP servers' tools: the tasks' only (a delegated job), not the voice's
+			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			cl, err := mcp.Dial(cctx, s)
+			var ts []tasks.Tool
+			if err == nil {
+				ts, err = cl.Tools(cctx)
+			}
+			cancel()
+			if err != nil {
+				stdlog.Printf("mcp %s: %v (her tasks go without it)", s.Name, err)
+				continue
+			}
+			for _, t := range ts {
+				k.Tasks.AddTool(t)
+			}
+			stdlog.Printf("mcp %s: %d tools for her tasks", s.Name, len(ts))
 		}
 	}
 	stdlog.Printf("the world rebuilt from snapshot %d (%s) and %d events (%d checkpoints checked, %d missed, genesis %v; %d pruned); %s backend, composed %v, tasks %v; %.2fs",
