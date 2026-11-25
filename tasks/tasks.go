@@ -54,6 +54,7 @@ type Tool struct {
 // overload: Google's "high demand", the user's quota).
 type Fallback struct {
 	Provider, Model, KeyFile string
+	ModelValue               *ai.Model // instead of Provider/Model (a test's faux model)
 }
 
 type Config struct {
@@ -78,7 +79,8 @@ type Runner struct {
 	cfg   Config
 	key   string
 	model *ai.Model
-	alts  []alt // Ask's fallbacks
+	alts  []alt             // the fallbacks: Ask's, and a task's when its model is overloaded
+	keys  map[string]string // the API keys by provider
 	mu    sync.Mutex
 	n     int
 	live  map[string]*Task
@@ -120,9 +122,12 @@ func New(c Config) (*Runner, error) {
 	if c.Now == nil {
 		c.Now = func() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 	}
-	r := &Runner{cfg: c, key: key, model: m, live: map[string]*Task{}}
+	r := &Runner{cfg: c, key: key, model: m, live: map[string]*Task{}, keys: map[string]string{string(m.Provider): key}}
 	for _, f := range c.Fallbacks {
-		fm := ai.GetModel(f.Provider, f.Model)
+		fm := f.ModelValue
+		if fm == nil {
+			fm = ai.GetModel(f.Provider, f.Model)
+		}
 		if fm == nil {
 			return nil, fmt.Errorf("tasks: no fallback model %s/%s in pi's catalog", f.Provider, f.Model)
 		}
@@ -131,6 +136,9 @@ func New(c Config) (*Runner, error) {
 			return nil, fmt.Errorf("tasks: fallback %s/%s: %w", f.Provider, f.Model, err)
 		}
 		r.alts = append(r.alts, alt{fm, fk})
+		if _, ok := r.keys[string(fm.Provider)]; !ok {
+			r.keys[string(fm.Provider)] = fk
+		}
 	}
 	if r.cfg.AskTry <= 0 {
 		r.cfg.AskTry = 25 * time.Second
@@ -164,10 +172,20 @@ func (r *Runner) Delegate(goal, level string) *Task {
 		pending: map[string]bool{}, Done: make(chan struct{})}
 	r.live[t.ID] = t
 	r.mu.Unlock()
+	r.agent(t, r.model)
+	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech})
+	go r.run(t)
+	return t
+}
+
+// agent gives the task its agent (its model can change during the run: run's fallbacks).
+func (r *Runner) agent(t *Task, m *ai.Model) {
 	t.Agent = agent.NewAgent(agent.AgentOptions{
-		InitialState: &agent.AgentState{SystemPrompt: r.cfg.System, Model: r.model, Tools: r.tools(t)},
-		GetApiKey:    func(string) string { return r.key },
-		MaxRetries:   6, // the free tier's 503 "high demand" is transient: pi backs off (Retry-After honoured)
+		InitialState: &agent.AgentState{SystemPrompt: r.cfg.System, Model: m, Tools: r.tools(t)},
+		GetApiKey:    r.keyOf,
+		// the free tier's 503 "high demand" is transient: pi backs off (Retry-After honoured); twice,
+		// then the next model (2026-11-25: six retries took two of the task's three minutes)
+		MaxRetries: 2,
 		// every conclusion queued is delivered at once (pi's default is one a turn: ten package lines would
 		// be ten more requests; found by the core's integration test)
 		SteeringMode: agent.QueueAll,
@@ -199,19 +217,76 @@ func (r *Runner) Delegate(goal, level string) *Task {
 		}
 		return nil
 	})
-	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech})
-	go r.run(t)
-	return t
+}
+
+// failedTurn is an assistant turn the provider failed (an error, an abort): dropped before the next model.
+func failedTurn(m agent.AgentMessage) bool {
+	var a *ai.AssistantMessage
+	switch v := m.(type) {
+	case ai.AssistantMessage:
+		a = &v
+	case *ai.AssistantMessage:
+		a = v
+	default:
+		return false
+	}
+	return a.StopReason == ai.StopError || a.StopReason == ai.StopAborted
+}
+
+// keyOf is the API key for a provider (the first model's, the fallbacks').
+func (r *Runner) keyOf(provider string) string {
+	if k, ok := r.keys[provider]; ok {
+		return k
+	}
+	return r.key
+}
+
+// overloaded is a provider's failure that another model may not have (Google's "high demand", a
+// request aborted, a quota), not the task's own.
+func overloaded(err error) bool {
+	if err == nil {
+		return false
+	}
+	e := strings.ToLower(err.Error())
+	for _, k := range []string{"high demand", "overloaded", "unavailable", "aborted", "503", "429", "quota", "rate limit", "resource_exhausted", "deadline"} {
+		if strings.Contains(e, k) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) run(t *Task) {
 	defer close(t.Done)
 	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.Timeout)
 	defer cancel()
-	t.Err = t.Agent.Prompt(ctx, t.Goal)
-	st := t.Agent.State()
-	if t.Err == nil && st.ErrorMessage != "" { // the provider's error ends the run on its state, not as an error
-		t.Err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
+	try := func() agent.AgentState {
+		t.Err = t.Agent.Prompt(ctx, t.Goal)
+		st := t.Agent.State()
+		if t.Err == nil && st.ErrorMessage != "" { // the provider's error ends the run on its state, not as an error
+			t.Err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
+		}
+		return st
+	}
+	st := try()
+	// the model overloaded: the task goes on with the next model (tasks.fallback, as Ask's), from its
+	// transcript (the calls made stay made, none again), the failed turn dropped
+	for _, m := range r.alts {
+		if !overloaded(t.Err) || ctx.Err() != nil {
+			break
+		}
+		r.log("fallback", t.ID, map[string]any{"error": t.Err.Error(), "model": string(m.model.Provider) + "/" + m.model.ID})
+		ms := t.Agent.State().Messages
+		for len(ms) > 0 && failedTurn(ms[len(ms)-1]) {
+			ms = ms[:len(ms)-1]
+		}
+		t.Agent.SetMessages(ms)
+		t.Agent.SetModel(m.model)
+		t.Err = t.Agent.Continue(ctx)
+		st = t.Agent.State()
+		if t.Err == nil && st.ErrorMessage != "" {
+			t.Err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
+		}
 	}
 	for i := len(st.Messages) - 1; i >= 0; i-- {
 		if st.Messages[i].MessageRole() == ai.RoleAssistant {
