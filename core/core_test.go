@@ -5,6 +5,7 @@ package core
 // (scripted answers that read what each request carried). No network, no API key used.
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"os"
@@ -851,4 +852,44 @@ func TestHerMoodMovesTheLightItFollows(t *testing.T) {
 	before = n()
 	r.k.Glow.HerMood("cozy")
 	still("her mood on a light that is off", before)
+}
+
+// TestAnAPIErrorIsHerStrain: her task model's 503s are a strain (busy), linked to her in the
+// world and told through the quantized port: one line per new confidence level (a hint, likely,
+// sure), none for a fourth error at the same level; an error that is a bug says nothing; a success
+// moves it again.
+func TestAnAPIErrorIsHerStrain(t *testing.T) {
+	r := newRig(t, tasks.All)
+	lines := func() []string {
+		r.v.mu.Lock()
+		defer r.v.mu.Unlock()
+		var out []string
+		for _, c := range r.v.context {
+			if strings.Contains(c, "Nina's task model") {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	r.k.Strain("mind", errors.New("Function call is missing a thought_signature")) // a bug: no strain
+	busy := errors.New("Error 503, Message: This model is currently experiencing high demand.")
+	for i := 0; i < 6 && !r.v.heard("Nina's task model: busy: the service is in high demand (sure"); i++ {
+		r.k.Strain("mind", busy)
+		time.Sleep(250 * time.Millisecond) // a beat: the world settles, the port reads it
+	}
+	waitHeard(t, r.v, "Nina's task model: busy: the service is in high demand (sure")
+	n := len(lines())
+	if n < 3 {
+		t.Fatalf("the strain did not rise level by level: %q", lines())
+	}
+	r.k.Strain("mind", busy)
+	time.Sleep(400 * time.Millisecond)
+	if got := lines(); len(got) != n {
+		t.Fatalf("an error at the same level was told again: %q", got)
+	}
+	r.k.Strain("mind", nil)
+	time.Sleep(400 * time.Millisecond)
+	if len(lines()) == n {
+		t.Fatalf("a success after the strain was not told: %q", lines())
+	}
 }

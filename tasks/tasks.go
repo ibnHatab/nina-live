@@ -62,16 +62,19 @@ type Config struct {
 	Fallbacks       []Fallback // Ask's: tried in order after the model, each once, within AskTry
 	ModelValue      *ai.Model  // instead of Provider/Model (a test's faux model)
 	KeyFile         string
-	System          string
-	Tools           []Tool
-	World           func() []string          // the world's lines now (TransformContext)
-	Log             *nlog.Log                // nil: nothing logged
-	Note            func(level, text string) // the result to the voice
-	Now             func() float64
-	Mech            Mechanisms
-	MaxTurns        int           // a run's turns before it is stopped (0: 12)
-	AskTry          time.Duration // Ask: one model's time before the next is tried (0: 25 s; the last gets what is left)
-	Timeout         time.Duration
+	// Strain hears the primary model's outcome on each request (nil: it answered): its API errors
+	// are what they say about her (core.Strain: busy, tired, offline)
+	Strain   func(err error)
+	System   string
+	Tools    []Tool
+	World    func() []string          // the world's lines now (TransformContext)
+	Log      *nlog.Log                // nil: nothing logged
+	Note     func(level, text string) // the result to the voice
+	Now      func() float64
+	Mech     Mechanisms
+	MaxTurns int           // a run's turns before it is stopped (0: 12)
+	AskTry   time.Duration // Ask: one model's time before the next is tried (0: 25 s; the last gets what is left)
+	Timeout  time.Duration
 }
 
 // Runner holds the running tasks.
@@ -322,6 +325,9 @@ func (r *Runner) run(t *Task) {
 		return st
 	}
 	st := try()
+	if r.cfg.Strain != nil {
+		r.cfg.Strain(t.Err)
+	}
 	// the model overloaded: the task goes on with the next model (tasks.fallback, as Ask's), from its
 	// transcript (the calls made stay made, none again), the failed turn dropped
 	for _, m := range r.alts {
@@ -604,6 +610,9 @@ func (r *Runner) Ask(ctx context.Context, system, prompt string) (string, error)
 		}
 		out, err = r.ask1(c, m, system, prompt, map[bool]int{true: 4, false: 1}[last])
 		cancel()
+		if i == 0 && r.cfg.Strain != nil {
+			r.cfg.Strain(err)
+		}
 		f := map[string]any{"chars": len(prompt), "answer": out, "model": string(m.model.Provider) + "/" + m.model.ID}
 		if err != nil {
 			f["error"] = err.Error()

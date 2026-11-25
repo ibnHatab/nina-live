@@ -76,6 +76,7 @@ type Config struct {
 }
 
 type Core struct {
+	strainState
 	Cfg    Config
 	Log    *nlog.Log
 	World  *world.World

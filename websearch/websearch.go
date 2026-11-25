@@ -33,6 +33,7 @@ type Searcher struct {
 	Try     time.Duration
 	Log     *nlog.Log
 	Now     func() float64
+	Strain  func(err error) // the grounding's outcome (nil: it answered): what its errors say about her
 
 	mu    sync.Mutex
 	day   string
@@ -100,6 +101,9 @@ func (s *Searcher) Search(ctx context.Context, query string) (string, error) {
 		resp, err := s.Client.Models.GenerateContent(c, m, genai.Text(instruction+query),
 			&genai.GenerateContentConfig{Tools: []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}})
 		cancel()
+		if s.Strain != nil {
+			s.Strain(err)
+		}
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %.160s", m, err))
 			continue

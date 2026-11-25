@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	stdlog "log"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -209,10 +211,14 @@ func main() {
 		}
 		cc.Tasks = &tasks.Config{Provider: c.Tasks.Provider, Model: c.Tasks.Model, KeyFile: c.Tasks.Key, System: charter, Fallbacks: fbs,
 			MaxTurns: c.Tasks.MaxTurns, Timeout: c.Tasks.Timeout,
-			Mech: tasks.Mechanisms{Transform: on(c.Tasks.Transform), Steer: on(c.Tasks.Steer), FollowUp: on(c.Tasks.FollowUp)}}
+			Mech:   tasks.Mechanisms{Transform: on(c.Tasks.Transform), Steer: on(c.Tasks.Steer), FollowUp: on(c.Tasks.FollowUp)},
+			Strain: func(err error) { strainOf("mind", err) }}
 	}
 	t0 := time.Now()
 	k, err := core.Open(ctx, cc)
+	if err == nil {
+		strainCore.Store(k)
+	}
 	if err != nil {
 		stdlog.Fatal(err)
 	}
@@ -233,6 +239,7 @@ func main() {
 		if err != nil {
 			stdlog.Fatalf("search: %v", err)
 		}
+		ws.Strain = func(err error) { strainOf("search", err) }
 		reads = append(reads, ws.Tool())
 	}
 	if k.Tasks != nil {
@@ -452,6 +459,31 @@ func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 	return dialogue.Tools{Decls: []*genai.Tool{{FunctionDeclarations: decls}}, Funcs: funcs}
 }
 
+// strainCore is the core once open: her services' API errors (and successes) go to it as strain
+// (core.Strain), whoever meets them first.
+var strainCore atomic.Pointer[core.Core]
+
+func strainOf(source string, err error) {
+	if k := strainCore.Load(); k != nil {
+		k.Strain(source, err)
+	}
+}
+
+// voiceStrain: the voice's and the ears' events that say something about their service.
+func voiceStrain(kind string, e map[string]any) {
+	er, _ := e["err"].(string)
+	switch kind {
+	case "mind_error", "voice_closed", "voice_resume_failed":
+		strainOf("voice", errors.New(er))
+	case "voice_connected":
+		strainOf("voice", nil)
+	case "ears_error", "ears_closed":
+		strainOf("ears", errors.New(er))
+	case "ears_connected":
+		strainOf("ears", nil)
+	}
+}
+
 // logDialogue writes the dialogue's events to the log (stream dialog) and indexes what was
 // heard and said for recall.
 func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string)) {
@@ -466,6 +498,7 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 				return
 			}
 			kind, _ := e["ev"].(string)
+			voiceStrain(kind, e)
 			if kind == "floor" && floor != nil {
 				to, _ := e["to"].(string)
 				floor(to)
