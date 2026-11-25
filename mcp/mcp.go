@@ -30,6 +30,7 @@ type Server struct {
 	Domain    string   `yaml:"domain"`     // the package its tools reach (steering), default home
 	Allow     []string `yaml:"allow"`      // only these tools (empty: all)
 	Deny      []string `yaml:"deny"`       // never these
+	Bare      bool     `yaml:"bare"`       // its tools by their own names (ha-mcp's are ha_… already)
 }
 
 // Client is one server's session.
@@ -278,8 +279,12 @@ func (c *Client) Tools(ctx context.Context) ([]tasks.Tool, error) {
 		if schema == nil {
 			schema = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
+		full := c.S.Name + "_" + name
+		if c.S.Bare {
+			full = name
+		}
 		out = append(out, tasks.Tool{
-			Name:        c.S.Name + "_" + name,
+			Name:        full,
 			Description: fmt.Sprintf("[%s, by MCP] %s", c.S.Name, sp.Description),
 			Parameters:  schema,
 			Domain:      dom,

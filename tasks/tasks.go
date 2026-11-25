@@ -99,6 +99,7 @@ type Task struct {
 	Err               error
 	Turns, Calls      int
 	Steered, Followed int
+	stopped           bool // at MaxTurns (its abort is not a provider's)
 }
 
 func New(c Config) (*Runner, error) {
@@ -186,6 +187,8 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 		// the free tier's 503 "high demand" is transient: pi backs off (Retry-After honoured); twice,
 		// then the next model (2026-11-25: six retries took two of the task's three minutes)
 		MaxRetries: 2,
+		// …and a short wait for each (pi's default ceiling is a minute: two cost 146 s of a task's five)
+		MaxRetryDelayMs: &retryDelayMs,
 		// every conclusion queued is delivered at once (pi's default is one a turn: ten package lines would
 		// be ten more requests; found by the core's integration test)
 		SteeringMode: agent.QueueAll,
@@ -208,6 +211,7 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 			t.Turns++
 			if t.Turns >= r.cfg.MaxTurns {
 				r.log("stopped", t.ID, map[string]any{"why": "max turns", "turns": t.Turns})
+				t.stopped = true // its own limit: no other model for it
 				go t.Agent.Abort()
 			}
 		case agent.EvMessageEnd:
@@ -218,6 +222,8 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 		return nil
 	})
 }
+
+var retryDelayMs = 5000
 
 // failedTurn is an assistant turn the provider failed (an error, an abort): dropped before the next model.
 func failedTurn(m agent.AgentMessage) bool {
@@ -272,7 +278,7 @@ func (r *Runner) run(t *Task) {
 	// the model overloaded: the task goes on with the next model (tasks.fallback, as Ask's), from its
 	// transcript (the calls made stay made, none again), the failed turn dropped
 	for _, m := range r.alts {
-		if !overloaded(t.Err) || ctx.Err() != nil {
+		if !overloaded(t.Err) || ctx.Err() != nil || t.stopped {
 			break
 		}
 		r.log("fallback", t.ID, map[string]any{"error": t.Err.Error(), "model": string(m.model.Provider) + "/" + m.model.ID})
