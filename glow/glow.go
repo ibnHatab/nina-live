@@ -67,6 +67,7 @@ type Host struct {
 	cur        *current
 	left       *current
 	pend       []string
+	led        bool // the light on follows a mood (hers, or the home's), not the person's own choice
 	bright     int
 	fade       int // a fade's generation: a newer change stops an older fade
 }
@@ -159,6 +160,13 @@ func (h *Host) Tick(map[string]int) []string {
 		}
 		want["mood_pick("+m+","+o+")"] = true
 	}
+	if h.cur != nil { // who the light on is following (her mood's rules)
+		if h.led {
+			want["follows"] = true
+		} else {
+			want["chosen"] = true
+		}
+	}
 	l := h.last[c.Part]
 	if l == "" {
 		l = "warm"
@@ -205,11 +213,17 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		h.asserted, h.last = map[string]bool{}, map[string]string{}
 	}
 	switch rule { // a change of the light ends a fade under way
-	case "glow", "reglow", "something", "something_new", "something_else", "something_new_one", "again", "off", "mood_glow_on", "mood_glow_change":
+	case "glow", "reglow", "something", "something_new", "something_else", "something_new_one", "again", "off", "mood_glow_on", "mood_glow_change", "her_glow":
 		h.fade++
 	}
+	switch rule { // who the light follows now
+	case "mood_glow_on", "mood_glow_change", "her_glow":
+		h.led = true
+	case "glow", "reglow", "something", "something_new", "something_else", "something_new_one", "again", "off":
+		h.led = false
+	}
 	switch rule {
-	case "mood_glow_on", "mood_glow_change":
+	case "mood_glow_on", "mood_glow_change", "her_glow":
 		m := ""
 		for _, kv := range strings.Split(strings.TrimSuffix(rest, "]"), ",") {
 			if k, v, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) == "M" {
@@ -336,6 +350,13 @@ func (h *Host) Name(handle string) (string, bool) {
 		return fmt.Sprintf("%s, %d%%", p.Colour, p.Brightness), true
 	}
 	return "", false
+}
+
+// HerMood tells the rules Nina's own mood (one of the home's moods): her_mood, at the next beat.
+func (h *Host) HerMood(m string) {
+	h.mu.Lock()
+	h.pend = append(h.pend, "+her_mood("+m+")")
+	h.mu.Unlock()
 }
 
 // MoodNow is the home's mood as the light took it (sleep, wake, …; "" when none).

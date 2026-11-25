@@ -111,8 +111,9 @@ func (m *Memory) Get(id string) (sw.Item, bool) {
 // Character is catalog/character.yaml.
 type Character struct {
 	Curious float64                        `yaml:"curious"`
-	Moods   map[string]map[string][]string `yaml:"moods"`    // mood → kind → tags
-	Routine map[string]string              `yaml:"routines"` // mood → HH:MM: the home turns to it each day
+	Moods   map[string]map[string][]string `yaml:"moods"`     // mood → kind → tags
+	Routine map[string]string              `yaml:"routines"`  // mood → HH:MM: the home turns to it each day
+	Her     map[string]string              `yaml:"her_moods"` // Nina's temper → the home's mood her light takes (one of the same name if absent)
 	Priors  []struct {
 		Tag  string  `yaml:"tag"`
 		Part string  `yaml:"part"`

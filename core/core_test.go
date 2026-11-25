@@ -798,3 +798,57 @@ func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
 	waitFor("the music whispering", func() bool { _, v, _ := snap(); return len(v) > 0 && v[len(v)-1] == 0.12 })
 	waitHeard(t, r.v, "The mood turns sleep")
 }
+
+// Nina's own mood moves the light that follows a mood, never the person's own colour, never a light
+// that is off (glow's her_glow; the user 2026-11-25: "mood is changed, the lighting has to change").
+func TestHerMoodMovesTheLightItFollows(t *testing.T) {
+	var mu sync.Mutex
+	var said []string
+	rigGlow = &glow.Host{FadeStep: 200 * time.Millisecond, Say: func(_ context.Context, cmds []string) error {
+		mu.Lock()
+		said = append(said, strings.Join(cmds, "; "))
+		mu.Unlock()
+		return nil
+	}}
+	defer func() { rigGlow = nil }()
+	r := newRig(t, tasks.All)
+	time.Sleep(300 * time.Millisecond) // a beat: the moods' picks asserted
+	n := func() int { mu.Lock(); defer mu.Unlock(); return len(said) }
+	wait := func(what string, ok func() bool) {
+		for i := 0; i < 50 && !ok(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !ok() {
+			mu.Lock()
+			defer mu.Unlock()
+			t.Fatalf("never: %s (Alexa %v)", what, said)
+		}
+	}
+	still := func(what string, before int) {
+		time.Sleep(800 * time.Millisecond)
+		if n() != before {
+			mu.Lock()
+			defer mu.Unlock()
+			t.Fatalf("%s: the light changed (Alexa %v)", what, said)
+		}
+	}
+
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "MOOD", "mood": "calm"}) // the home's mood: the light follows it
+	wait("a calm colour", func() bool { return n() > 0 })
+	before := n()
+	r.k.Glow.HerMood("focus")
+	wait("her focus on the light", func() bool { return n() > before })
+	waitHeard(t, r.v, "My mood turns focus")
+
+	homeCall(t, r.k, "home_glow", map[string]any{"intent": "COLOUR", "colour": "amber", "words": "amber"}) // the person's own
+	wait("amber", func() bool { mu.Lock(); defer mu.Unlock(); return strings.Contains(said[len(said)-1], "amber") })
+	before = n()
+	r.k.Glow.HerMood("lively")
+	still("her mood over the person's colour", before)
+
+	homeCall(t, r.k, "home_glow", map[string]any{"intent": "OFF"})
+	wait("off", func() bool { mu.Lock(); defer mu.Unlock(); return strings.Contains(said[len(said)-1], "turn off") })
+	before = n()
+	r.k.Glow.HerMood("cozy")
+	still("her mood on a light that is off", before)
+}

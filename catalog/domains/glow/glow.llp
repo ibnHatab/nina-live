@@ -20,6 +20,13 @@ pred brighter : home.
 pred dimmer : home.
 pred mood_pick(mood, offer) : home.    % the host: the colour each mood would take now
 pred moody(mood) : home.
+% Nina's own mood (her temperament, the persona; the user 2026-11-25: "mood is changed, the lighting
+% has to change"): the host says it (her_mood, in the home's moods), and says who the light on is
+% following: a mood (follows: hers, or the home's set by the person or a routine) or the person's
+% own choice (chosen). Her mood never turns the light on, and never overrides the person's colour.
+pred her_mood(mood) : home.
+pred follows : home.
+pred chosen : home.
 
 stage serve {
   %% The bedroom light goes {O}.
@@ -30,6 +37,12 @@ stage serve {
   mood_glow_on [dyn] : mood_glow(M) * idle * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
   %% The mood turns {M}: {O}.
   mood_glow_change [dyn] : mood_glow(M) * active(A) * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
+  %% My mood turns {M}, and the light with it: {O}.
+  her_glow [dyn] : her_mood(M) * active(A) * $follows * $mood_pick(M, O) -o active(O) * engage(O) * moody(M).
+  %% You chose this light: my mood stays in my voice.
+  her_yours [dyn] : her_mood(M) * $active(A) * $chosen -o ().
+  %% The light is off: my mood stays in my voice.
+  her_off [dyn] : her_mood(M) * $idle -o ().
   %% Brighter.
   up [dyn] : cmd_brighter * $active(O) -o brighter * ok.
   %% Dimmer.

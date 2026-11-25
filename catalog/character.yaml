@@ -12,6 +12,10 @@ routines:              # the home turns to a mood each day at these times (Nina'
   sleep: "22:00"       # the light fades like a sunset, the music whispers
   wake: "07:00"        # white light, the morning's music
 
+her_moods:             # Nina's own moods (her temperament) that the home has no mood of the same name for:
+  playful: lively      # the mood her light takes (glow's her_glow: only when the light on follows a mood,
+  evening: cozy        # never the person's own colour, never turning it on; between wake and sleep)
+
 moods:                 # each mood's tags, per kind: what a domain looks for when the director routes the mood to it
   calm:   {station: [ambient, calm, classical], colour: [warm, dim], air: [quiet]}
   cozy:   {station: [jazz, classic, acoustic], colour: [warm, amber], air: [normal]}

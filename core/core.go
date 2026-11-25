@@ -435,10 +435,33 @@ func (k *Core) temperament() {
 	if v := k.Voice(); v != nil {
 		v.Context("persona", st.Prompt(k.mood.C))
 	}
+	k.herLight(st.Mood, now)
 	if st.Mood != prev {
 		k.Log.Append(k.Cfg.Now(), "persona", st.Mood, st.Artwork, "", map[string]any{"from": prev, "activity": act,
 			"temperament": st.Temperament, "moon": st.Moon, "override": st.Override}, 1)
 	}
+}
+
+// herLight tells the light's rules Nina's new mood (glow's her_glow decides), as one of the home's
+// moods (the character's her_moods), between the morning's and the night's routines only: her
+// mood does not wake the bedroom at night.
+func (k *Core) herLight(mood string, now time.Time) {
+	if k.Glow == nil || k.Character == nil {
+		return
+	}
+	if wake, sleep := k.Character.Routine["wake"], k.Character.Routine["sleep"]; wake != "" && sleep != "" {
+		if hm := now.Format("15:04"); hm < wake || hm >= sleep {
+			return
+		}
+	}
+	m := mood
+	if h, ok := k.Character.Her[mood]; ok {
+		m = h
+	}
+	if _, ok := k.Character.Moods[m]; !ok {
+		return // not a mood of the home's
+	}
+	k.Glow.HerMood(m)
 }
 
 // Mood is Nina's temperament now (the dashboard's and the tools' view).
