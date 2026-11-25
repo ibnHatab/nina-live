@@ -40,7 +40,10 @@ if [ "$KIOSK" = 1 ]; then
   sudo install -D -m 644 "$K/starting.html" /usr/local/share/ha-pi-kiosk/starting.html
   sudo install -m 644 "$K/logo.png" /usr/local/share/ha-pi-kiosk/logo.png
   # the kiosk shows this machine's own Home Assistant (the repo's file names the first Pi's)
-  sed "s|homeassistant.local|$(hostname).local|g" "$K/config.env" | sudo install -D -m 644 /dev/stdin /etc/ha-pi-kiosk/config.env
+  # the kiosk's address as this machine has it (localhost: its own kiosk user, install/README; the first
+  # Pi: homeassistant.local); a new machine: localhost
+  KH=$(grep -o 'KIOSK_URL="http://[^:/"]*' /etc/ha-pi-kiosk/config.env 2>/dev/null | sed 's|.*//||'); KH=${KH:-localhost}
+  sed "s|homeassistant.local|$KH|g" "$K/config.env" | sudo install -D -m 644 /dev/stdin /etc/ha-pi-kiosk/config.env
   pkill -x firefox || true
 fi
 if systemctl --user is-enabled -q nina 2>/dev/null; then
