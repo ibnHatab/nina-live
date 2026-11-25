@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nina — a voice assistant that lives in your home or office</title>
+<meta name="description" content="Nina (nina-live): an open-source voice assistant that runs on your own device, with Home Assistant and rules you can read.">
+<link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><img src="nina.png" alt="Nina's portrait">
+  <div><h1>Nina</h1><p class="sub">A voice assistant that lives in your home or office, on your own device.</p></div></header>
+
+<div class="card">
+<p>Nina is open-source software (<a href="https://github.com/ibnHatab/nina-live">nina-live</a>) that runs on a
+small computer you own, such as a Raspberry Pi with a microphone array and speakers. You talk to her; she
+answers in her own voice, keeps your calendar and to-do list, plays the radio, sets timers, looks things up,
+and runs the home or the office through <a href="https://www.home-assistant.io/">Home Assistant</a>.</p>
+<p>What she decides to do is governed by rules you can read (the Metis rule language), not only by a language
+model: a model understands what you say, the rules decide what happens.</p>
+</div>
+
+<h2>What she connects to</h2>
+<ul>
+  <li><b>Home Assistant</b>, on the same device: your lights, ventilation, music, calendars and lists.</li>
+  <li><b>Google Calendar and Google Tasks</b>, through Home Assistant, when the device's owner signs in with
+      their Google account: to read your agenda and to add or change the events and tasks you ask for.</li>
+  <li><b>Google's Gemini models</b>, to hear and understand what you say and to answer.</li>
+</ul>
+
+<h2>Your data</h2>
+<p>Her memory (an event log) and Home Assistant's sign-ins stay on your device. There is no server of ours in
+between. Read the <a href="privacy.html">privacy policy</a>.</p>
+
+<h2>For developers</h2>
+<p>The code, the domain rules and the installation path are on GitHub:
+<a href="https://github.com/ibnHatab/nina-live">nina-live</a> (her core),
+<a href="https://github.com/ibnHatab/fsttm-live">fsttm-live</a> (her voice and turn-taking),
+<a href="https://github.com/ibnHatab/acasa">acasa</a> (Home Assistant and the installation),
+and <a href="architecture.html">her architecture</a>.</p>
+
+<footer>
+  <p>Questions or problems: <a href="https://github.com/ibnHatab/nina-live/issues">open an issue on GitHub</a>.
+  · <a href="privacy.html">Privacy policy</a></p>
+  <p class="credit">Nina's portrait: Claudia by anabology · AI-generated.</p>
+</footer>
+</main></body></html>

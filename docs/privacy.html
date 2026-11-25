@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nina — privacy policy</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><img src="nina.png" alt="Nina's portrait">
+  <div><h1>Privacy policy</h1><p class="sub">Nina (nina-live) · effective 25 November 2026</p></div></header>
+
+<p>Nina is open-source software that runs on a device owned by the person or organisation that installs it
+(its <b>operator</b>): a home or an office. This policy describes what the software does with your data,
+including data from your Google account when the operator connects it.</p>
+
+<h2>Where your data is</h2>
+<ul>
+  <li><b>On the device.</b> Nina's memory (an event log of what was heard, said and done), her settings, and
+      Home Assistant with its sign-ins (including the Google sign-in tokens) are stored on the device itself.</li>
+  <li><b>No server of ours.</b> The developers of Nina run no service that receives your data. We do not
+      collect, see, sell or share it.</li>
+</ul>
+
+<h2>Google user data</h2>
+<p>When the operator signs in to Google through Home Assistant on the device, Nina can access:</p>
+<ul>
+  <li><b>Google Calendar</b>: the events of the signed-in account, to tell you your agenda and to create or
+      change the events you ask for;</li>
+  <li><b>Google Tasks</b>: the task lists of the signed-in account, to read them and to add or complete the
+      tasks you ask for;</li>
+  <li>where the operator enables them, <b>YouTube</b> and <b>Google Photos</b> data that you ask her to find
+      or show.</li>
+</ul>
+<p>This data is used only to do what you ask and to remind you of what you scheduled. It is not used for
+advertising, not sold, not transferred to anyone, not used to train AI models, and not read by people other
+than those who use the device.</p>
+<p><b>Nina's use and transfer of information received from Google APIs will adhere to the
+<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data
+Policy</a>, including the Limited Use requirements.</b></p>
+
+<h2>Speech and the AI models</h2>
+<p>To understand what you say and to answer, the device sends your speech, and the text and context needed
+for a reply, to Google's Gemini API under the operator's own API key; web searches go to a search service on
+the device or to Gemini with Google Search. Those services handle the data under Google's terms. Nina listens
+for her name on the device itself, and sends sound only while she is awake.</p>
+
+<h2>Your control</h2>
+<ul>
+  <li>Turn her microphone or voice off at any time on her screen.</li>
+  <li>Remove her access to your Google account at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>, or by removing the
+      integration in Home Assistant.</li>
+  <li>Ask the operator to delete her memory: it is a file on the device.</li>
+</ul>
+
+<h2>Contact</h2>
+<p>For questions about the software: <a href="https://github.com/ibnHatab/nina-live/issues">open an issue on
+GitHub</a>. For questions about a particular installation, contact its operator.</p>
+
+<footer><p><a href="index.html">Nina</a> · <a href="https://github.com/ibnHatab/nina-live">nina-live on GitHub</a></p>
+  <p class="credit">Nina's portrait: Claudia by anabology · AI-generated.</p></footer>
+</main></body></html>
