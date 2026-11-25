@@ -641,6 +641,17 @@ type Link struct {
 	Voice func() float64       // her voice's level at the knob, dBFS RMS (the bubble's edge)
 	Now   func() float64       // her voice's level now (aimed at the person, within the bubble)
 	Knob  func(step int) error // the knob a step up or down (+-3 dB); nil: the music's own steps
+	// Curve is the player's volume law: "mpd" (MPD's software mixer, exponential; applied before
+	// its output buffer: heard ~1 s late) or "pulse" (PulseAudio's stream volume, cubic, applied at
+	// the mix: heard at once; live, 2026-11-25: the radio lagged her duck by a second on "mpd")
+	Curve string
+}
+
+func (l *Link) volume(db float64) float64 {
+	if l.Curve == "pulse" {
+		return math.Max(0, math.Min(1, math.Pow(10, db/60)))
+	}
+	return MPDVolume(db)
 }
 
 // volume is the MPD volume (0..1) to set now. Holds h.mu.
@@ -664,7 +675,7 @@ func (h *Host) volume() float64 {
 		}
 		db = math.Min(db, now-under)
 	}
-	return math.Max(0.02, MPDVolume(db-l.Top))
+	return math.Max(0.02, l.volume(db-l.Top))
 }
 
 // Follow sets the music's volume again now (linked, playing): her duck, the knob.

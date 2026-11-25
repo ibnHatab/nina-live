@@ -37,3 +37,14 @@ func TestLink(t *testing.T) {
 		t.Fatalf("unlinked duck: %v", v)
 	}
 }
+
+// PulseAudio's cubic volume: -12 dB is 0.63, -30 dB 0.32.
+func TestPulseCurve(t *testing.T) {
+	l := &Link{Curve: "pulse"}
+	if v := l.volume(-12); math.Abs(v-0.631) > 0.001 {
+		t.Fatalf("-12 dB: %v", v)
+	}
+	if v := l.volume(-30); math.Abs(v-0.316) > 0.001 {
+		t.Fatalf("-30 dB: %v", v)
+	}
+}

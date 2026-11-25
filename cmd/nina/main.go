@@ -90,6 +90,7 @@ type Config struct {
 	Music struct { // one knob for the music and her voice (music.Link; fsttm-live scripts/calib)
 		Top   float64 `yaml:"top"`   // the stream's level at 100 %, dBFS RMS on the speakers' feed (0: the music's own volume)
 		Under float64 `yaml:"under"` // dB under her voice while anyone talks (default 10)
+		Curve string  `yaml:"curve"` // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
 	} `yaml:"music"`
 	MCP []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
@@ -282,7 +283,7 @@ func main() {
 	k.SetVoice(d)
 	if c.Music.Top != 0 && d.Calibrated() && k.Music != nil { // one knob: the music in dB from her voice's level
 		// on the core's host (rebuilt from the log at start), not the one given to it
-		k.Music.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob}
+		k.Music.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob, Curve: c.Music.Curve}
 		d.OnDuck = func(bool) { k.Music.Follow() } // a person over her: the music down with her at once
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
