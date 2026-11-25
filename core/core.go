@@ -648,10 +648,18 @@ func (k *Core) Presence(p Presence) {
 	}
 }
 
-// Viewer is the person's distance: her voice's loudness follows it, closer quieter (about 0.6
-// at 0.9 m, 1 at 1.5 m, 1.6 from 2.4 m).
+// Viewer is the person's distance: her voice's loudness follows it, closer quieter. With the
+// room calibrated (fsttm-live scripts/calib, audio.level) she is aimed at them, within the
+// bubble the person set; otherwise about 0.6 at 0.9 m, 1 at 1.5 m, 1.6 from 2.4 m.
 func (k *Core) Viewer(distance float64) {
 	if distance <= 0 {
+		return
+	}
+	if r, ok := k.Voice().(interface {
+		SetReach(float64)
+		Calibrated() bool
+	}); ok && r.Calibrated() {
+		r.SetReach(distance)
 		return
 	}
 	g, ok := k.Voice().(interface{ SetGain(float64) })

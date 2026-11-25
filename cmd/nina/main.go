@@ -87,6 +87,10 @@ type Config struct {
 		Key     string   `yaml:"key"`
 		Daily   int      `yaml:"daily"` // web queries a day at most
 	} `yaml:"search"`
+	Music struct { // one knob for the music and her voice (music.Link; fsttm-live scripts/calib)
+		Top   float64 `yaml:"top"`   // the stream's level at 100 %, dBFS RMS on the speakers' feed (0: the music's own volume)
+		Under float64 `yaml:"under"` // dB under her voice while anyone talks (default 10)
+	} `yaml:"music"`
 	MCP []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
 
@@ -276,6 +280,9 @@ func main() {
 		return err
 	}
 	k.SetVoice(d)
+	if c.Music.Top != 0 && d.Calibrated() { // one knob: the music in dB from her voice's level
+		mu.Link = &music.Link{Top: c.Music.Top, Under: c.Music.Under, Voice: d.Volume, Now: d.Loudness, Knob: d.Knob}
+	}
 	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
 	go func() {           // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
 		last := ""

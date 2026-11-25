@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -74,6 +75,8 @@ type Host struct {
 	SkipWithin time.Duration       // a station left within this is skipped (default 90 s)
 	Mood       string              // the mood now (the director's mood wish sets it)
 	Moods      map[string][]string // mood → the tags a station of that mood carries (catalog/character.yaml)
+	// Link ties the music's loudness to her voice's (nil: a volume of its own, ducked to 0.3 of it).
+	Link *Link
 
 	mu       sync.Mutex
 	last     map[string]Station // part → the station played last at that time of day
@@ -84,6 +87,9 @@ type Host struct {
 	altID    string
 	talking  bool
 	vol      float64
+	ducked   bool    // the floor is held: the music under her voice
+	off      float64 // linked: the music's dB over her voice (the mood's; 0 lively)
+	sent     float64 // linked: the volume last set
 	cur      *current
 	pend     []string // lines for the next beat (skipped)
 	left     *current // the station just left within SkipWithin
@@ -176,6 +182,7 @@ func (h *Host) station(id string) (Station, bool) {
 
 // Tick is one beat's world lines: the taste now, as the lifted rules need it.
 func (h *Host) Tick(map[string]int) []string {
+	go h.follow()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	c := h.context()
@@ -340,11 +347,11 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		st := h.moodBind[m]
 		switch m { // the home's character: how loud a mood is
 		case "sleep":
-			h.vol = 0.12
+			h.vol, h.off = 0.12, -12
 		case "calm":
-			h.vol = 0.25
+			h.vol, h.off = 0.25, -6
 		case "lively":
-			h.vol = 0.45
+			h.vol, h.off = 0.45, 0
 		}
 		h.mu.Unlock()
 		go h.tune(b["O"], "", st)
@@ -373,6 +380,14 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		h.mu.Unlock()
 		go h.call("media_player", "media_stop", nil)
 	case "up", "down":
+		if h.Link != nil && h.Link.Knob != nil { // one knob: louder music is a louder Nina too
+			step := 1
+			if rule == "down" {
+				step = -1
+			}
+			go func() { h.Link.Knob(step); h.follow() }()
+			return
+		}
 		h.mu.Lock()
 		if rule == "up" {
 			h.vol = min(1, h.vol+0.1)
@@ -384,14 +399,19 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		go h.call("media_player", "volume_set", map[string]any{"volume_level": v})
 	case "duck", "unduck":
 		h.mu.Lock()
-		v := h.vol
+		h.ducked = rule == "duck"
+		v := h.volume()
 		h.mu.Unlock()
-		if rule == "duck" {
-			v *= 0.3
-		}
 		go h.call("media_player", "volume_set", map[string]any{"volume_level": v})
 	case "night":
-		go h.call("media_player", "volume_set", map[string]any{"volume_level": 0.08})
+		h.mu.Lock()
+		h.off = -18
+		v := 0.08
+		if h.Link != nil {
+			v = h.volume()
+		}
+		h.mu.Unlock()
+		go h.call("media_player", "volume_set", map[string]any{"volume_level": v})
 	case "learn":
 		h.mu.Lock()
 		if h.cur != nil {
@@ -479,7 +499,7 @@ func (h *Host) tune(g, words string, st Station) {
 	}
 	h.cur = &current{genre: g, words: words, station: st, at: h.now()}
 	h.record(Event{Kind: "tuned", Genre: g, Part: taste.Part(h.now()), Words: words, Station: st})
-	v := h.vol
+	v := h.volume()
 	h.mu.Unlock()
 	h.call("media_player", "play_media", map[string]any{"media_content_type": "music", "media_content_id": st.URL})
 	h.call("media_player", "volume_set", map[string]any{"volume_level": v})
@@ -490,6 +510,11 @@ func norm(s string) string {
 }
 
 func (h *Host) call(domain, service string, data map[string]any) {
+	if service == "volume_set" {
+		h.mu.Lock()
+		h.sent, _ = data["volume_level"].(float64)
+		h.mu.Unlock()
+	}
 	if h.Call == nil {
 		return
 	}
@@ -599,4 +624,74 @@ func (h *Host) Busy() (playing, talking bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.cur != nil, h.talking
+}
+
+// Link is the one knob (the user, 2026-11-25: as on an Echo, one sound knob for the music and
+// her voice; apart, the music can drown what she hears and says). The music is set in dB from her
+// voice's level: the mood's offset over it (lively 0, calm -6, sleep -12, night -18), and while
+// anyone talks under her by Under dB, wherever it was. So the knob that sets how far her voice
+// carries (fsttm-live prefs.bubble, the acoustic calibration's 1 to 4 m) sets the music too, and
+// the music is never louder than what her echo canceller was calibrated for.
+//
+// MPD's software volume is exponential, (e^(4v) - 1) / (e^4 - 1) of full scale (measured on the
+// speakers' feed, scripts/calib): "0.3 of the volume" took 76 % to 23 %, 22 dB, the music gone.
+type Link struct {
+	Top   float64              // the stream's level at 100 %, dBFS RMS on the speakers' feed
+	Under float64              // dB under her voice while anyone talks (0: 10)
+	Voice func() float64       // her voice's level at the knob, dBFS RMS (the bubble's edge)
+	Now   func() float64       // her voice's level now (aimed at the person, within the bubble)
+	Knob  func(step int) error // the knob a step up or down (+-3 dB); nil: the music's own steps
+}
+
+// volume is the MPD volume (0..1) to set now. Holds h.mu.
+func (h *Host) volume() float64 {
+	if h.Link == nil {
+		if h.ducked {
+			return h.vol * 0.3
+		}
+		return h.vol
+	}
+	l := h.Link
+	db := l.Voice() + h.off
+	if h.ducked {
+		under := l.Under
+		if under == 0 {
+			under = 10
+		}
+		now := l.Voice()
+		if l.Now != nil {
+			now = l.Now()
+		}
+		db = math.Min(db, now-under)
+	}
+	return math.Max(0.02, MPDVolume(db-l.Top))
+}
+
+// follow sets the music's volume again when the knob moved (linked, playing).
+func (h *Host) follow() {
+	h.mu.Lock()
+	if h.Link == nil || h.cur == nil {
+		h.mu.Unlock()
+		return
+	}
+	v := h.volume()
+	if math.Abs(v-h.sent) < 0.01 {
+		h.mu.Unlock()
+		return
+	}
+	h.mu.Unlock()
+	h.call("media_player", "volume_set", map[string]any{"volume_level": v})
+}
+
+// MPDLevel is the dB (relative to 100 %) of MPD's software volume v (0..1).
+func MPDLevel(v float64) float64 {
+	if v <= 0 {
+		return -120
+	}
+	return 20 * math.Log10((math.Exp(4*v)-1)/(math.Exp(4)-1))
+}
+
+// MPDVolume is the software volume (0..1) for db relative to 100 %.
+func MPDVolume(db float64) float64 {
+	return math.Max(0, math.Min(1, math.Log(1+(math.Exp(4)-1)*math.Pow(10, db/20))/4))
 }
