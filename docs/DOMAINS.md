@@ -422,7 +422,7 @@ notification policy. These are where Nina is more than Home Assistant.
 |---|---|---|
 | 1 | — | the class adapters (done: weather, todo, calendar, timer, person, media_player) |
 | 2 | Google Calendar, Google Tasks (done 2026-11-24) | the `agenda` domain (done): events on Nina's calendar, to-dos on your tasks, your calendar refused by the rules; next: the timers' reminders mirrored, items from the phone as the person's reports |
-| 3 | MCP Server | the tools of the rest of Home Assistant to pi, a mutating call checked by the rules |
+| 3 | MCP Server, ha-mcp (done 2026-11-25) | Nina's own three tools over both (`hatools/`: `ha_find`, `ha_automation`, `ha_diagnose`; ~450 tokens, her tasks only): automations for `routines`, the log and history for `diagnostics`, lookups for every domain. Devices stay her domains' tools (their rules decide); the servers' own tools (~30k tokens a turn) only raw, for a larger model |
 | 4 | Music Assistant | media reasoning (sessions, preferences, volume lowered while the person talks) |
 | 5 | Feedreader | news and interests |
 | 6 | Mealie, Grocy, Shopping List | cooking, inventory, shopping |

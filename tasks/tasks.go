@@ -189,6 +189,7 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 		MaxRetries: 2,
 		// …and a short wait for each (pi's default ceiling is a minute: two cost 146 s of a task's five)
 		MaxRetryDelayMs: &retryDelayMs,
+		TimeoutMs:       45000, // a model that does not answer in 45 s hands the task over (3.8 Flash took 175 s, 2026-11-25)
 		// every conclusion queued is delivered at once (pi's default is one a turn: ten package lines would
 		// be ten more requests; found by the core's integration test)
 		SteeringMode: agent.QueueAll,
@@ -225,6 +226,52 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 
 var retryDelayMs = 5000
 
+// handOver is a transcript for another model: the first request as it was, and what was done since
+// as one plain message (a model's tool calls carry its own signatures, which the next one refuses:
+// Gemini's "missing a thought_signature", 2026-11-25). The calls made stay made: none again.
+func handOver(ms []agent.AgentMessage) []agent.AgentMessage {
+	var first agent.AgentMessage
+	var done []string
+	for _, m := range ms {
+		switch x := m.(type) {
+		case ai.UserMessage, *ai.UserMessage:
+			if first == nil {
+				first = m
+			} else if s := strings.TrimSpace(textOf(m)); s != "" {
+				done = append(done, "told: "+s)
+			}
+		case ai.AssistantMessage, *ai.AssistantMessage:
+			var cs ai.ContentList
+			if a, ok := x.(ai.AssistantMessage); ok {
+				cs = a.Content
+			} else {
+				cs = x.(*ai.AssistantMessage).Content
+			}
+			for _, c := range cs {
+				switch v := c.(type) {
+				case ai.TextContent:
+					if s := strings.TrimSpace(v.Text); s != "" {
+						done = append(done, "said: "+s)
+					}
+				case ai.ToolCall:
+					b, _ := json.Marshal(v.Arguments)
+					done = append(done, "called "+v.Name+" "+string(b))
+				}
+			}
+		case ai.ToolResultMessage, *ai.ToolResultMessage:
+			r := textOf(m)
+			if len(r) > 1500 {
+				r = r[:1500] + "…"
+			}
+			done = append(done, "  → "+r)
+		}
+	}
+	if first == nil || len(done) == 0 {
+		return ms
+	}
+	return []agent.AgentMessage{first, user("Done so far in this task, by another model (go on from here; what was called was done, do not do it again):\n" + strings.Join(done, "\n"))}
+}
+
 // failedTurn is an assistant turn the provider failed (an error, an abort): dropped before the next model.
 func failedTurn(m agent.AgentMessage) bool {
 	var a *ai.AssistantMessage
@@ -254,7 +301,7 @@ func overloaded(err error) bool {
 		return false
 	}
 	e := strings.ToLower(err.Error())
-	for _, k := range []string{"high demand", "overloaded", "unavailable", "aborted", "503", "429", "quota", "rate limit", "resource_exhausted", "deadline"} {
+	for _, k := range []string{"high demand", "overloaded", "unavailable", "aborted", "503", "429", "quota", "rate limit", "resource_exhausted", "deadline", "timeout", "timed out"} {
 		if strings.Contains(e, k) {
 			return true
 		}
@@ -286,7 +333,7 @@ func (r *Runner) run(t *Task) {
 		for len(ms) > 0 && failedTurn(ms[len(ms)-1]) {
 			ms = ms[:len(ms)-1]
 		}
-		t.Agent.SetMessages(ms)
+		t.Agent.SetMessages(handOver(ms))
 		t.Agent.SetModel(m.model)
 		t.Err = t.Agent.Continue(ctx)
 		st = t.Agent.State()

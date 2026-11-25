@@ -31,6 +31,8 @@ type Server struct {
 	Allow     []string `yaml:"allow"`      // only these tools (empty: all)
 	Deny      []string `yaml:"deny"`       // never these
 	Bare      bool     `yaml:"bare"`       // its tools by their own names (ha-mcp's are ha_… already)
+	Raw       bool     `yaml:"raw"`        // its own tools to the model too (a larger model's open road; Flash: off)
+	Role      string   `yaml:"role"`       // what Nina's own tools use it for (hatools: assist, config)
 }
 
 // Client is one server's session.

@@ -27,6 +27,7 @@ import (
 	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
 	"github.com/ibnHatab/nina-live/glow"
+	"github.com/ibnHatab/nina-live/hatools"
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/mcp"
 	"github.com/ibnHatab/nina-live/music"
@@ -235,22 +236,9 @@ func main() {
 		for _, t := range reads {
 			k.Tasks.AddTool(t)
 		}
-		for _, s := range c.MCP { // the MCP servers' tools: the tasks' only (a delegated job), not the voice's
-			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cl, err := mcp.Dial(cctx, s)
-			var ts []tasks.Tool
-			if err == nil {
-				ts, err = cl.Tools(cctx)
-			}
-			cancel()
-			if err != nil {
-				stdlog.Printf("mcp %s: %v (her tasks go without it)", s.Name, err)
-				continue
-			}
-			for _, t := range ts {
-				k.Tasks.AddTool(t)
-			}
-			stdlog.Printf("mcp %s: %d tools for her tasks", s.Name, len(ts))
+		// Home Assistant through its MCP servers: Nina's own three tools (hatools), the tasks' only
+		for _, t := range hatools.Dial(ctx, c.MCP, stdlog.Printf) {
+			k.Tasks.AddTool(t)
 		}
 	}
 	stdlog.Printf("the world rebuilt from snapshot %d (%s) and %d events (%d checkpoints checked, %d missed, genesis %v; %d pruned); %s backend, composed %v, tasks %v; %.2fs",

@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sky-valley/pi/agent"
 	"github.com/sky-valley/pi/ai"
 	"github.com/sky-valley/pi/ai/providers"
 )
@@ -46,5 +48,26 @@ func TestTaskFallsBack(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("the tool ran %d times", calls)
+	}
+}
+
+// the next model gets the first request and a plain account of what was done: no other model's calls
+func TestHandOverIsPlain(t *testing.T) {
+	ms := handOver([]agent.AgentMessage{
+		user("is the log clean?"),
+		&ai.AssistantMessage{Content: ai.ContentList{ai.ToolCall{ID: "1", Name: "ha_diagnose", Arguments: map[string]any{"what": "log"}}}},
+		ai.ToolResultMessage{ToolCallID: "1", ToolName: "ha_diagnose", Content: ai.ContentList{ai.TextContent{Text: "[]"}}},
+	})
+	if len(ms) != 2 {
+		t.Fatalf("%d messages", len(ms))
+	}
+	got := textOf(ms[1])
+	if !strings.Contains(got, `called ha_diagnose {"what":"log"}`) || !strings.Contains(got, "→ []") {
+		t.Fatalf("%q", got)
+	}
+	for _, m := range ms {
+		if m.MessageRole() == ai.RoleAssistant {
+			t.Fatal("an assistant message handed over")
+		}
 	}
 }
