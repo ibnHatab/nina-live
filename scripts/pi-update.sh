@@ -29,7 +29,9 @@ echo "== the radar"
 (cd "$R/fsttm-live" && go build -o bin/radar ./cmd/radar)
 if systemctl --user is-enabled -q nina-radar 2>/dev/null; then systemctl --user restart nina-radar; echo "nina-radar: $(systemctl --user is-active nina-radar)"; fi
 echo "== the look and feel"
-(cd "$R/acasa" && go run ./cmd/ha-ui -config "$HOME/homeassistant/config" 2>&1 | grep -E "dashboard|themes|rror" || true)
+# this machine's own Home Assistant (homeassistant.local is the first Pi's name: on another machine,
+# another instance)
+(cd "$R/acasa" && go run ./cmd/ha-ui -url http://127.0.0.1:8123 -config "$HOME/homeassistant/config" 2>&1 | grep -E "dashboard|themes|rror" || true)
 if [ "$KIOSK" = 1 ]; then
   echo "== the kiosk"
   K=$R/acasa/ha-ui/kiosk
@@ -37,7 +39,8 @@ if [ "$KIOSK" = 1 ]; then
   sudo install -m 755 "$K/backlight-control.sh" /usr/local/bin/backlight-control.sh
   sudo install -D -m 644 "$K/starting.html" /usr/local/share/ha-pi-kiosk/starting.html
   sudo install -m 644 "$K/logo.png" /usr/local/share/ha-pi-kiosk/logo.png
-  sudo install -m 644 "$K/config.env" /etc/ha-pi-kiosk/config.env
+  # the kiosk shows this machine's own Home Assistant (the repo's file names the first Pi's)
+  sed "s|homeassistant.local|$(hostname).local|g" "$K/config.env" | sudo install -D -m 644 /dev/stdin /etc/ha-pi-kiosk/config.env
   pkill -x firefox || true
 fi
 if systemctl --user is-enabled -q nina 2>/dev/null; then
