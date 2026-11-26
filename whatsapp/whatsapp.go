@@ -139,14 +139,45 @@ func lower(s string) string { return strings.ToLower(s) }
 func (c *Client) LoggedIn() bool { return c.cli.Store.ID != nil }
 
 // Link pairs her as a linked device of the phone's number: the 8-character code to enter in WhatsApp
-// on that phone (Linked devices → Link a device → Link with phone number instead). Connects first.
-func (c *Client) Link(ctx context.Context, phone string) (string, error) {
-	if !c.cli.IsConnected() {
-		if err := c.cli.ConnectContext(ctx); err != nil {
-			return "", err
-		}
+// on that phone (Linked devices → Link a device → Link with phone number instead). The pairing session
+// first (the QR channel, before connecting), its first event, then the code (whatsmeow: asked earlier,
+// the phone answered "couldn't link device", 2026-11-26). done reports the session's end: "success",
+// "timeout" (the login socket closes after ~160 s), or an error's text.
+func (c *Client) Link(ctx context.Context, phone string) (code string, done <-chan string, err error) {
+	qr, err := c.cli.GetQRChannel(ctx)
+	if err != nil {
+		return "", nil, err
 	}
-	return c.cli.PairPhone(ctx, strings.TrimPrefix(phone, "+"), true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err := c.cli.ConnectContext(ctx); err != nil {
+		return "", nil, err
+	}
+	select {
+	case <-qr:
+	case <-time.After(20 * time.Second):
+		return "", nil, fmt.Errorf("whatsapp: no pairing session from the server")
+	}
+	code, err = c.cli.PairPhone(ctx, strings.TrimPrefix(strings.ReplaceAll(phone, " ", ""), "+"), true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		return "", nil, err
+	}
+	out := make(chan string, 1)
+	go func() {
+		for it := range qr {
+			switch it.Event {
+			case "code":
+				continue
+			case "success":
+				out <- "success"
+			case "error":
+				out <- fmt.Sprintf("error: %v", it.Error)
+			default:
+				out <- it.Event
+			}
+			return
+		}
+		out <- "closed"
+	}()
+	return code, out, nil
 }
 
 // Connect starts the channel (linked).

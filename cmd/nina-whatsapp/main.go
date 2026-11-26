@@ -45,21 +45,27 @@ func main() {
 			fmt.Fprintln(os.Stderr, "nina-whatsapp link PHONE (+40…)")
 			os.Exit(2)
 		}
-		code, err := c.Link(ctx, flag.Arg(1))
+		code, done, err := c.Link(ctx, flag.Arg(1))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "link:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("On the phone of %s: WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead, and enter:\n\n    %s\n\nwaiting (5 min)…\n", flag.Arg(1), code)
-		for end := time.Now().Add(5 * time.Minute); time.Now().Before(end); time.Sleep(2 * time.Second) {
-			if c.LoggedIn() {
-				fmt.Println("linked.")
-				time.Sleep(5 * time.Second) // the first sync settles
-				return
+		fmt.Printf("On the phone of %s: WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead, and enter:\n\n    %s\n\nwaiting (the code lasts about 2.5 min)…\n", flag.Arg(1), code)
+		select {
+		case r := <-done:
+			if r != "success" {
+				fmt.Fprintln(os.Stderr, "not linked:", r, "(run it again for a new code)")
+				os.Exit(1)
 			}
+			for i := 0; i < 15 && !c.LoggedIn(); i++ {
+				time.Sleep(time.Second)
+			}
+			fmt.Println("linked:", c.LoggedIn())
+			time.Sleep(5 * time.Second) // the first sync settles
+		case <-time.After(4 * time.Minute):
+			fmt.Fprintln(os.Stderr, "not linked in 4 min: run it again for a new code")
+			os.Exit(1)
 		}
-		fmt.Fprintln(os.Stderr, "not linked in 5 min: run it again for a new code")
-		os.Exit(1)
 	case "groups":
 		if err := c.Connect(ctx); err != nil {
 			fmt.Fprintln(os.Stderr, err)
