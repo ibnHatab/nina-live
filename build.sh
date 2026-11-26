@@ -31,6 +31,8 @@ out=$(cd catalog/domains && "$METISC" build .)
 grep -E '^(image|result)' <<<"$out"
 built=$(grep -o '^image home v-[0-9a-f]*' <<<"$out" | grep -o 'v-[0-9a-f]*' | head -1)
 [ "$built" = "v-$(cat catalog/domains/image.golden)" ] || { echo "the composition's image ($built) is not image.golden's: metisc build . changed it (commit the new hash when meant)" >&2; exit 1; }
+# the images it superseded go: nina refuses to start with two in build/ (pero, 2026-11-26)
+for d in catalog/domains/build/home.image.v-*; do [ "$d" = "catalog/domains/build/home.image.$built" ] || rm -rf "$d"; done
 mkdir -p bin
 go build -o bin/nina ./cmd/nina
 go build -o bin/nina-whatsapp ./cmd/nina-whatsapp # her WhatsApp, linked by hand (whatsapp/)
