@@ -98,3 +98,38 @@ func TestOverloadedSkipped(t *testing.T) {
 		t.Fatalf("a %q, b %q began at %d (want the fallback, 1)", a.Result, b.Result, b.start)
 	}
 }
+
+// a model that sends nothing (pi gives Google requests no timeout): past Idle the task goes to the
+// next model instead of waiting out its whole Timeout (2026-11-26: a WhatsApp answer took 3 min)
+func TestSilentModelHandsOver(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "key")
+	os.WriteFile(key, []byte("faux"), 0o600)
+	first := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux_hang"})
+	t.Cleanup(first.Unregister)
+	next := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux_ok"})
+	t.Cleanup(next.Unregister)
+	first.SetResponses([]providers.FauxResponseStep{
+		func(ai.TranscriptContext, *ai.SimpleStreamOptions, *providers.FauxState, *ai.Model) *ai.AssistantMessage {
+			time.Sleep(1500 * time.Millisecond) // hung
+			return providers.FauxAssistantMessage(ai.ContentList{providers.FauxText("too late")}, ai.StopStop)
+		},
+	})
+	next.SetResponses([]providers.FauxResponseStep{
+		providers.FauxStatic(providers.FauxAssistantMessage(ai.ContentList{providers.FauxText("Cloudy, 6°C.")}, ai.StopStop)),
+	})
+	r, err := New(Config{ModelValue: first.GetModel(), KeyFile: key, System: "test",
+		Fallbacks: []Fallback{{ModelValue: next.GetModel(), KeyFile: key}},
+		Idle:      300 * time.Millisecond, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	task := r.Delegate("how is the weather?", "info")
+	<-task.Done
+	if task.Err != nil || task.Result != "Cloudy, 6°C." {
+		t.Fatalf("err %v result %q", task.Err, task.Result)
+	}
+	if d := time.Since(t0); d > 5*time.Second {
+		t.Fatalf("took %s", d)
+	}
+}

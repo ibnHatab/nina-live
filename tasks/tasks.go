@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	nlog "github.com/ibnHatab/nina-live/log"
@@ -75,6 +76,10 @@ type Config struct {
 	MaxTurns int           // a run's turns before it is stopped (0: 12)
 	AskTry   time.Duration // Ask: one model's time before the next is tried (0: 25 s; the last gets what is left)
 	Timeout  time.Duration
+	// Idle: a model attempt that sends nothing this long (no tool running) is given up and the task
+	// handed to the next model (0: 45 s). pi gives Google requests no timeout of their own: a hung
+	// Gemini call had held a WhatsApp answer for the task's whole 3 minutes (2026-11-26).
+	Idle time.Duration
 }
 
 // Runner holds the running tasks.
@@ -104,7 +109,9 @@ type Task struct {
 	Err               error
 	Turns, Calls      int
 	Steered, Followed int
-	stopped           bool // at MaxTurns (its abort is not a provider's)
+	stopped           bool         // at MaxTurns (its abort is not a provider's)
+	last              atomic.Int64 // the last agent event (unix ns): the watchdog's
+	tooling           atomic.Int32 // tools running: their time is not the model's silence
 }
 
 func New(c Config) (*Runner, error) {
@@ -252,6 +259,13 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 		},
 	})
 	t.Agent.Subscribe(func(_ context.Context, e agent.AgentEvent) error {
+		t.last.Store(time.Now().UnixNano())
+		switch e.Type {
+		case agent.EvToolExecutionStart:
+			t.tooling.Add(1)
+		case agent.EvToolExecutionEnd:
+			t.tooling.Add(-1)
+		}
 		switch e.Type {
 		case agent.EvTurnEnd: // the turns counted from the events, no hook: past MaxTurns the run is stopped
 			t.Turns++
@@ -354,12 +368,46 @@ func overloaded(err error) bool {
 	return false
 }
 
+// watched runs one model attempt under the idle watchdog: silent past cfg.Idle (no event, no tool
+// running), it is cancelled and reported as a timeout (overloaded: the next model takes the task).
+func (r *Runner) watched(ctx context.Context, t *Task, f func(context.Context) error) error {
+	idle := r.cfg.Idle
+	if idle <= 0 {
+		idle = 45 * time.Second
+	}
+	actx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	t.last.Store(time.Now().UnixNano())
+	var fired atomic.Bool
+	go func() {
+		tk := time.NewTicker(idle / 15)
+		defer tk.Stop()
+		for {
+			select {
+			case <-actx.Done():
+				return
+			case <-tk.C:
+				if t.tooling.Load() == 0 && time.Since(time.Unix(0, t.last.Load())) > idle {
+					fired.Store(true)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	err := f(actx)
+	if fired.Load() {
+		return fmt.Errorf("timed out: the model sent nothing in %s", idle)
+	}
+	return err
+}
+
 func (r *Runner) run(t *Task) {
 	defer close(t.Done)
 	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.Timeout)
 	defer cancel()
 	try := func() agent.AgentState {
-		t.Err = t.Agent.Prompt(ctx, t.Goal)
+		t.Err = r.watched(ctx, t, func(c context.Context) error { return t.Agent.Prompt(c, t.Goal) })
 		st := t.Agent.State()
 		if t.Err == nil && st.ErrorMessage != "" { // the provider's error ends the run on its state, not as an error
 			t.Err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
@@ -390,7 +438,7 @@ func (r *Runner) run(t *Task) {
 		}
 		t.Agent.SetMessages(handOver(ms))
 		t.Agent.SetModel(m.model)
-		t.Err = t.Agent.Continue(ctx)
+		t.Err = r.watched(ctx, t, t.Agent.Continue)
 		st = t.Agent.State()
 		if t.Err == nil && st.ErrorMessage != "" {
 			t.Err = fmt.Errorf("%s", firstLine(st.ErrorMessage))
