@@ -48,3 +48,20 @@ func TestPulseCurve(t *testing.T) {
 		t.Fatalf("-30 dB: %v", v)
 	}
 }
+
+// A place's languages: its stations, any when none is set; Radio Browser's lists ("french,english").
+func TestSpeaks(t *testing.T) {
+	h := &Host{Languages: []string{"english"}}
+	for _, c := range []struct {
+		s    Station
+		want bool
+	}{{Station{Name: "RMC", Language: "french"}, false}, {Station{Name: "BBC", Language: "english"}, true},
+		{Station{Name: "both", Language: "French,English"}, true}, {Station{Name: "old"}, false}} {
+		if got := h.speaks(c.s); got != c.want {
+			t.Errorf("%s: %v, want %v", c.s.Name, got, c.want)
+		}
+	}
+	if !(&Host{}).speaks(Station{Name: "any"}) {
+		t.Error("no languages set: any station")
+	}
+}

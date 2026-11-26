@@ -90,9 +90,10 @@ type Config struct {
 		Daily   int      `yaml:"daily"` // web queries a day at most
 	} `yaml:"search"`
 	Music struct { // one knob for the music and her voice (music.Link; fsttm-live scripts/calib)
-		Top   float64 `yaml:"top"`   // the stream's level at 100 %, dBFS RMS on the speakers' feed (0: the music's own volume)
-		Under float64 `yaml:"under"` // dB under her voice while anyone talks (default 10)
-		Curve string  `yaml:"curve"` // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
+		Top       float64  `yaml:"top"`       // the stream's level at 100 %, dBFS RMS on the speakers' feed (0: the music's own volume)
+		Under     float64  `yaml:"under"`     // dB under her voice while anyone talks (default 10)
+		Curve     string   `yaml:"curve"`     // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
+		Languages []string `yaml:"languages"` // the stations' languages this place listens to (Radio Browser's: english, romanian…; empty: any)
 	} `yaml:"music"`
 	MCP []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
@@ -179,6 +180,8 @@ func main() {
 		_, err := ha.Service(ctx, domain, service, data, false)
 		return err
 	}}
+	// stations in the place's languages first (2026-11-26)
+	mu.Languages = c.Music.Languages
 	gl := &glow.Host{Say: func(ctx context.Context, commands []string) error { // script.alexa_quiet: the Echo silenced
 		_, err := ha.Service(ctx, "script", "alexa_quiet", map[string]any{"commands": commands}, false)
 		return err

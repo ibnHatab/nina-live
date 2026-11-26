@@ -183,6 +183,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		}
 		fresh := music.New(past) // the stations played last at each time of day: from the log
 		fresh.Player, fresh.Call, fresh.Search, fresh.Now, fresh.KeepAfter, fresh.SkipWithin = mh.Player, mh.Call, mh.Search, mh.Now, mh.KeepAfter, mh.SkipWithin
+		fresh.Languages = mh.Languages
 		fresh.Taste = k.Taste // the person's taste: the semantic world's
 		fresh.Save = func(e music.Event) { c.Log.Append(c.Now(), "music", e.Kind, e.Genre, "", e, 1) }
 		k.Music = fresh

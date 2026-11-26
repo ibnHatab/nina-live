@@ -40,9 +40,10 @@ var (
 
 // Station is a radio station.
 type Station struct {
-	Name string   `json:"name"`
-	URL  string   `json:"url"`
-	Tags []string `json:"tags,omitempty"`
+	Name     string   `json:"name"`
+	URL      string   `json:"url"`
+	Tags     []string `json:"tags,omitempty"`
+	Language string   `json:"language,omitempty"` // Radio Browser's (e.g. "english", "french,english")
 }
 
 // ID is a station's item id in the taste.
@@ -66,6 +67,10 @@ type Host struct {
 	Player string // the media_player (default media_player.music_player_daemon)
 	// Call is a Home Assistant service call (nil: nothing plays)
 	Call func(ctx context.Context, domain, service string, data map[string]any) error
+	// Languages: the stations' languages this place listens to (music.languages; empty: any). The
+	// search asks in them first, and a remembered station in another (or none known) is not chosen
+	// (2026-11-26, pero: "news" was Radio Browser's most played news station, a French one).
+	Languages []string
 	// Search finds stations for a genre's tag or the person's words (default: Radio Browser)
 	Search     func(ctx context.Context, tag, words string) ([]Station, error)
 	Taste      taste.Client // the semantic world's taste (nil: a memory of its own)
@@ -440,6 +445,19 @@ func (h *Host) leaving() {
 	}
 }
 
+// speaks: the station is in one of the place's languages (any, when none is set).
+func (h *Host) speaks(s Station) bool {
+	if len(h.Languages) == 0 {
+		return true
+	}
+	for _, l := range h.Languages {
+		if l != "" && strings.Contains(strings.ToLower(s.Language), strings.ToLower(l)) {
+			return true
+		}
+	}
+	return false
+}
+
 // register puts stations into the taste as items (their genre, their tags). Holds h.mu.
 func (h *Host) register(sts []Station, genre string) {
 	for _, s := range sts {
@@ -467,7 +485,13 @@ func (h *Host) tune(g, words string, st Station) {
 			tags = []string{g}
 		}
 		h.mu.Lock()
-		if c, ok := h.taste().Select("station", tags, h.context(), nil); ok {
+		var foreign []string // remembered stations not in the place's languages
+		for id, x := range h.stations {
+			if !h.speaks(x) {
+				foreign = append(foreign, id)
+			}
+		}
+		if c, ok := h.taste().Select("station", tags, h.context(), foreign); ok {
 			st, _ = h.station(c.ID)
 		}
 		h.mu.Unlock()
@@ -478,7 +502,7 @@ func (h *Host) tune(g, words string, st Station) {
 			}
 			search := h.Search
 			if search == nil {
-				search = RadioBrowser
+				search = RadioBrowserIn(h.Languages...)
 			}
 			sts, err := search(ctx, tag, q)
 			if err != nil || len(sts) == 0 {
@@ -565,7 +589,26 @@ func (h *Host) Name(handle string) (string, bool) {
 // RadioBrowser searches radio-browser.info: by tag, or by the person's words in the name and the
 // tags. Only the genre or the words are sent.
 func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
+	return radioBrowser(ctx, tag, words, "")
+}
+
+// RadioBrowserIn searches in each language in turn (the first that has stations), then in any.
+func RadioBrowserIn(languages ...string) func(ctx context.Context, tag, words string) ([]Station, error) {
+	return func(ctx context.Context, tag, words string) ([]Station, error) {
+		for _, l := range languages {
+			if out, err := radioBrowser(ctx, tag, words, l); err == nil && len(out) > 0 {
+				return out, nil
+			}
+		}
+		return radioBrowser(ctx, tag, words, "")
+	}
+}
+
+func radioBrowser(ctx context.Context, tag, words, language string) ([]Station, error) {
 	q := url.Values{"order": {"clickcount"}, "reverse": {"true"}, "hidebroken": {"true"}, "limit": {"10"}}
+	if language != "" {
+		q.Set("language", language)
+	}
 	if tag != "" {
 		q.Set("tag", tag)
 	} else {
@@ -580,9 +623,10 @@ func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
 		}
 		defer resp.Body.Close()
 		var xs []struct {
-			Name string `json:"name"`
-			URL  string `json:"url_resolved"`
-			Tags string `json:"tags"`
+			Name     string `json:"name"`
+			URL      string `json:"url_resolved"`
+			Tags     string `json:"tags"`
+			Language string `json:"language"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&xs); err != nil {
 			return nil, err
@@ -598,7 +642,7 @@ func RadioBrowser(ctx context.Context, tag, words string) ([]Station, error) {
 					tags = append(tags, t)
 				}
 			}
-			out = append(out, Station{strings.TrimSpace(x.Name), x.URL, tags})
+			out = append(out, Station{Name: strings.TrimSpace(x.Name), URL: x.URL, Tags: tags, Language: x.Language})
 		}
 		return out, nil
 	}
