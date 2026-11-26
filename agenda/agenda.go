@@ -218,6 +218,15 @@ func parseTime(s string, now time.Time) (time.Time, error) {
 			return t, nil
 		}
 	}
+	if day, hm, ok := strings.Cut(strings.ToLower(s), " "); ok && (day == "today" || day == "tomorrow") { // the voice's "tomorrow 13:00"
+		if t, err := time.ParseInLocation("15:04", strings.TrimSpace(hm), time.Local); err == nil {
+			d := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
+			if day == "tomorrow" {
+				d = d.AddDate(0, 0, 1)
+			}
+			return d, nil
+		}
+	}
 	if t, err := time.ParseInLocation("15:04", s, time.Local); err == nil {
 		d := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
 		if d.Before(now) {
