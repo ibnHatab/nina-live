@@ -25,8 +25,12 @@ if [ "${1:-}" = "test" ] || [ "${1:-}" = "vet" ]; then
 fi
 # the home's composition image (catalog/domains/build/, not committed: image.golden pins its hash)
 METISC="${METISC:-$METIS_LANG_DIR/src/metisc}"
-(cd catalog/domains && "$METISC" build . | grep -E '^(image|result)')
-(cd catalog/domains && [ "$(ls build | grep -o 'v-[0-9a-f]*' | head -1)" = "v-$(cat image.golden)" ]) || { echo "the composition's image is not image.golden's: metisc build . changed it (commit the new hash when meant)" >&2; exit 1; }
+# the image just built (metisc's "image home v-…" line), not the first one left in build/ (an older one
+# stays there after a rules change: the check had failed on pero, 2026-11-26)
+out=$(cd catalog/domains && "$METISC" build .)
+grep -E '^(image|result)' <<<"$out"
+built=$(grep -o '^image home v-[0-9a-f]*' <<<"$out" | grep -o 'v-[0-9a-f]*' | head -1)
+[ "$built" = "v-$(cat catalog/domains/image.golden)" ] || { echo "the composition's image ($built) is not image.golden's: metisc build . changed it (commit the new hash when meant)" >&2; exit 1; }
 mkdir -p bin
 go build -o bin/nina ./cmd/nina
 go build -o bin/nina-whatsapp ./cmd/nina-whatsapp # her WhatsApp, linked by hand (whatsapp/)
