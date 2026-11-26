@@ -71,3 +71,30 @@ func TestHandOverIsPlain(t *testing.T) {
 		}
 	}
 }
+
+// a model that answered "overloaded" is passed over by the next task (it began with the fallback)
+func TestOverloadedSkipped(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "key")
+	os.WriteFile(key, []byte("faux"), 0o600)
+	first := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux3"})
+	t.Cleanup(first.Unregister)
+	next := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux4"})
+	t.Cleanup(next.Unregister)
+	busy := providers.FauxStatic(providers.FauxAssistantMessage(nil, ai.StopError,
+		providers.FauxMessageOptions{ErrorMessage: "This model is currently experiencing high demand."}))
+	first.SetResponses([]providers.FauxResponseStep{busy, busy, busy, busy, busy, busy})
+	ok := providers.FauxStatic(providers.FauxAssistantMessage(ai.ContentList{providers.FauxText("fine")}, ai.StopStop))
+	next.SetResponses([]providers.FauxResponseStep{ok, ok})
+	r, err := New(Config{ModelValue: first.GetModel(), KeyFile: key, System: "test",
+		Fallbacks: []Fallback{{ModelValue: next.GetModel(), KeyFile: key}}, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := r.Delegate("one", "info")
+	<-a.Done
+	b := r.Delegate("two", "info")
+	<-b.Done
+	if a.Result != "fine" || b.Result != "fine" || b.start != 1 {
+		t.Fatalf("a %q, b %q began at %d (want the fallback, 1)", a.Result, b.Result, b.start)
+	}
+}

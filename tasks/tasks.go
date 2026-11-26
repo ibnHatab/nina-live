@@ -82,8 +82,9 @@ type Runner struct {
 	cfg   Config
 	key   string
 	model *ai.Model
-	alts  []alt             // the fallbacks: Ask's, and a task's when its model is overloaded
-	keys  map[string]string // the API keys by provider
+	alts  []alt                // the fallbacks: Ask's, and a task's when its model is overloaded
+	hot   map[string]time.Time // a model that answered "overloaded": skipped until then (5 min)
+	keys  map[string]string    // the API keys by provider
 	mu    sync.Mutex
 	n     int
 	live  map[string]*Task
@@ -98,6 +99,7 @@ type Task struct {
 	named             map[string]bool // what its calls named (their string arguments, lower case)
 	refusedOn         map[string]bool // … in a call the rules refused (a unit not yet confirmed: worth a retry)
 	Done              chan struct{}
+	start             int // the chain's model it began with (pick)
 	Result            string
 	Err               error
 	Turns, Calls      int
@@ -179,11 +181,48 @@ func (r *Runner) Delegate(goal, level string) *Task {
 		pending: map[string]bool{}, Done: make(chan struct{})}
 	r.live[t.ID] = t
 	r.mu.Unlock()
-	r.agent(t, r.model)
-	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech})
+	t.start = r.pick()
+	r.agent(t, r.chain()[t.start].model)
+	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech, "model": r.chain()[t.start].model.ID})
 	go r.run(t)
 	return t
 }
+
+// chain: the model, then its fallbacks.
+func (r *Runner) chain() []alt { return append([]alt{{r.model, r.key}}, r.alts...) }
+
+// hotFor: how long a model that answered "overloaded" is passed over (Google's "high demand" lasts
+// minutes: each task had spent ~2 min on it before its fallback, 2026-11-26, past a WhatsApp answer's time).
+const hotFor = 5 * time.Minute
+
+// pick: the first model of the chain not overloaded lately (the first, when all are).
+func (r *Runner) pick() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, a := range r.chain() {
+		if time.Now().After(r.hot[modelKey(a.model)]) {
+			return i
+		}
+	}
+	return 0
+}
+
+func (r *Runner) overheat(m *ai.Model) {
+	r.mu.Lock()
+	if r.hot == nil {
+		r.hot = map[string]time.Time{}
+	}
+	r.hot[modelKey(m)] = time.Now().Add(hotFor)
+	r.mu.Unlock()
+}
+
+func (r *Runner) isHot(m *ai.Model) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return time.Now().Before(r.hot[modelKey(m)])
+}
+
+func modelKey(m *ai.Model) string { return string(m.Provider) + "/" + m.ID }
 
 // agent gives the task its agent (its model can change during the run: run's fallbacks).
 func (r *Runner) agent(t *Task, m *ai.Model) {
@@ -332,11 +371,18 @@ func (r *Runner) run(t *Task) {
 		r.cfg.Strain(t.Err)
 	}
 	// the model overloaded: the task goes on with the next model (tasks.fallback, as Ask's), from its
-	// transcript (the calls made stay made, none again), the failed turn dropped
-	for _, m := range r.alts {
+	// transcript (the calls made stay made, none again), the failed turn dropped; an overloaded model is
+	// passed over by the tasks after it for a while (pick)
+	cur := r.chain()[t.start].model
+	for _, m := range r.chain()[t.start+1:] {
 		if !overloaded(t.Err) || ctx.Err() != nil || t.stopped {
 			break
 		}
+		r.overheat(cur)
+		if r.isHot(m.model) {
+			continue
+		}
+		cur = m.model
 		r.log("fallback", t.ID, map[string]any{"error": t.Err.Error(), "model": string(m.model.Provider) + "/" + m.model.ID})
 		ms := t.Agent.State().Messages
 		for len(ms) > 0 && failedTurn(ms[len(ms)-1]) {

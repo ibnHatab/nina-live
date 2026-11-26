@@ -306,6 +306,16 @@ func (c *Client) on(evt any) {
 	case *events.Message:
 		c.message(e)
 	case *events.Connected:
+		// online: WhatsApp delivers a client's read receipts (blue ticks) only while it is (the user,
+		// 2026-11-26: no blue ticks); a presence needs a push name: the account's, or Nina
+		go func() {
+			if c.cli.Store.PushName == "" {
+				c.cli.Store.PushName = "Nina"
+			}
+			if err := c.cli.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+				c.log("wa_error", map[string]any{"err": "presence: " + err.Error()})
+			}
+		}()
 		c.log("wa_status", map[string]any{"state": "connected"})
 	case *events.Disconnected:
 		c.log("wa_status", map[string]any{"state": "disconnected"})
@@ -346,7 +356,13 @@ func (c *Client) message(e *events.Message) {
 		c.screen()
 	}
 	if m.Addressed {
-		_ = c.cli.MarkRead(ctx, []types.MessageID{e.Info.ID}, time.Now(), e.Info.Chat, e.Info.Sender)
+		sender := e.Info.Sender // a group's: who wrote it; a direct chat's: none
+		if !e.Info.IsGroup {
+			sender = types.EmptyJID
+		}
+		if err := c.cli.MarkRead(ctx, []types.MessageID{e.Info.ID}, time.Now(), e.Info.Chat, sender); err != nil {
+			c.log("wa_error", map[string]any{"err": "read: " + err.Error()})
+		}
 		c.ask(Request{Msg: m, Group: e.Info.IsGroup}, e)
 	}
 }
