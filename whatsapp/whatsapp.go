@@ -108,6 +108,9 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if len(cfg.Names) == 0 {
 		cfg.Names = []string{"nina"}
 	}
+	if cfg.Mode == "self" && len(cfg.Keep) == 0 {
+		cfg.Keep = []string{"self"} // a primary number: none of the person's other chats kept unless named (claudia, 2026-11-26)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfg.Store), 0o700); err != nil {
 		return nil, err
 	}
