@@ -35,7 +35,7 @@ func TestScreenToolAlbum(t *testing.T) {
 		t.Fatalf("missing: %s %q %v", st, msg, got)
 	}
 	have = nil
-	if _, msg := tool.Call(context.Background(), map[string]any{"show": "photos", "album": "Nina's gallery"}); len(got) != 0 || !strings.Contains(msg, "no albums") {
+	if _, msg := tool.Call(context.Background(), map[string]any{"show": "photos", "album": "Nina's gallery"}); len(got) != 0 || !strings.Contains(msg, "none you can show") {
 		t.Fatalf("none: %q %v", msg, got)
 	}
 }
