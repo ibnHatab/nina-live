@@ -466,6 +466,9 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 	if o := r.k.Home.Call(ctx, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Gym", "calendar": "my own calendar"}); o.Status != "refused" {
 		t.Fatalf("the person's calendar: %s %s", o.Status, o.Text)
 	}
+	if o := r.k.Home.Call(ctx, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Gym", "calendar": "the person's own calendar"}); o.Status != "refused" {
+		t.Fatalf("the person's own calendar: %s %s", o.Status, o.Text)
+	}
 	time.Sleep(300 * time.Millisecond)
 	mu.Lock()
 	if len(calls) != 2 {

@@ -16,8 +16,9 @@ slots:
 guidance: |
   `summary` is what it is, in the person's words. `start` is the local date and time,
   YYYY-MM-DDTHH:MM (the date today is in the context, "now: ..."). `minutes` is how long (default
-  30). `due` is a to-do's date, YYYY-MM-DD, or empty. `calendar` is "Nina" unless the person names
-  another; `list` is "my tasks" unless they name another ("the shopping list": "shopping"). REMOVE's
+  30). `due` is a to-do's date, YYYY-MM-DD, or empty. `calendar` is "nina" unless the person names
+  another: their own calendar ("my own calendar", "my calendar") is "the person's own calendar" (the rules
+  refuse it: say so), the test calendar only when they say "test calendar"; `list` is "my tasks" unless they name another ("the shopping list": "shopping"). REMOVE's
   `summary` is the item as the person says it.
 examples:
   - ["put the dentist tomorrow at ten in the calendar", {"intent":"EVENT","summary":"Dentist","start":"2026-11-25T10:00","minutes":60}]
@@ -44,9 +45,9 @@ map:
 outcomes: {done: done, refused: refused}
 handles:
   target:
-    nina_cal: {description: ["nina", "your calendar", "nina's calendar"]}
-    nina_local: {description: ["local", "test calendar"]}
-    person_cal: {description: ["my calendar", "my own calendar", "main calendar", "personal"]}
+    nina_cal: {description: ["nina", "nina's calendar", "the calendar"]}
+    nina_local: {description: ["local test calendar", "test calendar"]}
+    person_cal: {description: ["the person's own calendar", "my own calendar", "my calendar", "my personal calendar", "my main calendar"]}
     my_tasks: {description: ["my tasks", "tasks", "google tasks", "to-do", "todo"]}
     nina_todo: {description: ["nina's list", "local list"]}
     shopping: {description: ["shopping", "shopping list", "groceries", "the shopping"]}
