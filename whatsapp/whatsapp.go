@@ -453,7 +453,7 @@ func (c *Client) isSelf(chat types.JID) bool {
 
 // keeps: whether a chat is kept (Keep: "self", its name, "all"; none listed: all).
 func (c *Client) keeps(name string, self bool) bool {
-	if len(c.cfg.Keep) == 0 {
+	if len(c.cfg.Keep) == 0 || c.shown(name) { // a group chosen for her screen is kept (its card shows it; she answers only as her mode says)
 		return true
 	}
 	for _, k := range c.cfg.Keep {

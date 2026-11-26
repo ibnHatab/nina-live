@@ -49,4 +49,9 @@ func TestKeeps(t *testing.T) {
 	if !c.keeps("family", false) || c.keeps("Ana", false) {
 		t.Fatal("self and a group")
 	}
+	c.cfg.Keep = []string{"self"}
+	c.cfg.Show = []string{"Office"}
+	if !c.keeps("office", false) || c.keeps("Ana", false) {
+		t.Fatal("a group on her screen is kept")
+	}
 }
