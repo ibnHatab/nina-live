@@ -35,6 +35,7 @@ import (
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/websearch"
+	"github.com/ibnHatab/nina-live/whatsapp"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	"google.golang.org/genai"
 	"gopkg.in/yaml.v3"
@@ -95,6 +96,15 @@ type Config struct {
 		Curve     string   `yaml:"curve"`     // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
 		Languages []string `yaml:"languages"` // the stations' languages this place listens to (Radio Browser's: english, romanian…; empty: any)
 	} `yaml:"music"`
+	// WhatsApp (whatsapp/): her own number's channel, a linked device (nina-whatsapp link PHONE first)
+	WhatsApp struct {
+		Enabled bool          `yaml:"enabled"`
+		Store   string        `yaml:"store"`    // its SQLite file (whatsmeow's keys, her messages)
+		Names   []string      `yaml:"names"`    // words naming her in a group (nina)
+		Show    []string      `yaml:"show"`     // groups on her screen's card, by name
+		MinGap  time.Duration `yaml:"min_gap"`  // between two answers in one chat (10 s)
+		PerHour int           `yaml:"per_hour"` // answers an hour in all (30)
+	} `yaml:"whatsapp"`
 	Radar *bool        `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
 	MCP   []mcp.Server `yaml:"mcp"`   // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
@@ -246,6 +256,27 @@ func main() {
 		ws.Strain = func(err error) { strainOf("search", err) }
 		reads = append(reads, ws.Tool())
 	}
+	var wa *whatsapp.Client // her WhatsApp channel: opened here (its read tool), connected once her voice is
+	var waLog func(string, map[string]any)
+	if c.WhatsApp.Enabled && k.Tasks != nil {
+		w := c.WhatsApp
+		wc, err := whatsapp.Open(ctx, whatsapp.Config{Store: expand(firstOf(w.Store, "~/.local/share/nina/whatsapp.db")), Names: w.Names,
+			Show: w.Show, MinGap: w.MinGap, PerHour: w.PerHour, Answer: waAnswer(k),
+			Log: func(kind string, d map[string]any) {
+				if waLog != nil {
+					waLog(kind, d)
+				}
+			},
+			Strain: func(err error) { strainOf("whatsapp", err) }})
+		if err != nil {
+			stdlog.Printf("whatsapp: %v", err)
+		} else if !wc.LoggedIn() {
+			stdlog.Printf("whatsapp: not linked yet (nina-whatsapp link PHONE)")
+		} else {
+			wa = wc
+			reads = append(reads, waReadTool(wa))
+		}
+	}
 	if k.Tasks != nil {
 		k.Tasks.AddTool(k.Recall())
 		reads = append(reads, k.ExplainTool()) // the voice's and the tasks' (the loop below)
@@ -338,6 +369,14 @@ func main() {
 			k.Presence(p)
 		}
 	}()
+	if wa != nil { // her screens hear of WhatsApp now; then it connects
+		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
+		if err := wa.Connect(ctx); err != nil {
+			stdlog.Printf("whatsapp: %v", err)
+		} else {
+			stdlog.Printf("whatsapp: connected (answers named and direct messages; shows %v)", c.WhatsApp.Show)
+		}
+	}
 	go logDialogue(ctx, d, L, k.Floor)
 	if err := d.StartPlugins(ctx); err != nil {
 		stdlog.Fatal(err)

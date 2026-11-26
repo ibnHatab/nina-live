@@ -165,6 +165,9 @@ func user(text string) ai.UserMessage {
 	return ai.UserMessage{Content: ai.ContentList{ai.TextContent{Text: text}}, Timestamp: time.Now().UnixMilli()}
 }
 
+// Quiet is the level of a task whose result is its caller's (a WhatsApp answer): no NOTE.
+const Quiet = "quiet"
+
 // Delegate starts a run for the goal → its id at once; the result comes as a NOTE at the level.
 func (r *Runner) Delegate(goal, level string) *Task {
 	if level == "" {
@@ -362,13 +365,13 @@ func (r *Runner) run(t *Task) {
 	if t.Err != nil {
 		f["error"] = t.Err.Error()
 		r.log("failed", t.ID, f)
-		if r.cfg.Note != nil {
+		if r.cfg.Note != nil && t.Level != Quiet {
 			r.cfg.Note(t.Level, "I couldn't finish that: "+t.Err.Error())
 		}
 		return
 	}
 	r.log("done", t.ID, f)
-	if r.cfg.Note != nil && t.Result != "" {
+	if r.cfg.Note != nil && t.Result != "" && t.Level != Quiet {
 		r.cfg.Note(t.Level, t.Result)
 	}
 }

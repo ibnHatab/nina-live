@@ -28,4 +28,5 @@ METISC="${METISC:-$METIS_LANG_DIR/src/metisc}"
 (cd catalog/domains && [ "$(ls build | grep -o 'v-[0-9a-f]*' | head -1)" = "v-$(cat image.golden)" ]) || { echo "the composition's image is not image.golden's: metisc build . changed it (commit the new hash when meant)" >&2; exit 1; }
 mkdir -p bin
 go build -o bin/nina ./cmd/nina
-echo "built → bin/nina"
+go build -o bin/nina-whatsapp ./cmd/nina-whatsapp # her WhatsApp, linked by hand (whatsapp/)
+echo "built → bin/nina, bin/nina-whatsapp"
