@@ -13,7 +13,7 @@
 # check included: catalog/domains/image.golden).
 set -euo pipefail
 R=${REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}
-export PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=${GOTOOLCHAIN:-local} GOFLAGS=${GOFLAGS:--mod=mod}
+export PATH=/usr/local/go/bin:$PATH GOFLAGS=${GOFLAGS:--mod=mod}   # GOTOOLCHAIN as the machine has it: auto fetches the go.mod release where the installed Go is older (Pascal: 1.22)
 PULL=0; [ "${1:-}" = "--pull" ] && PULL=1
 
 # the persona's repos: nina-live itself, her voice, and Metis (the compiler, its runtime and agent)
