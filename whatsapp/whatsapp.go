@@ -52,6 +52,9 @@ type Config struct {
 	Debug bool
 }
 
+// Busy is her word when no answer came in time (her models overloaded).
+const Busy = "Sorry, I can't think straight right now (my models are overloaded). Please ask me again in a few minutes."
+
 // Msg is one message as kept.
 type Msg struct {
 	ID         string    `json:"id"`
@@ -446,7 +449,9 @@ func (c *Client) ask(r Request, e *events.Message) {
 		if wait > 0 {
 			time.Sleep(wait)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		// 100 s for her answer: past it (her models overloaded), a word instead of silence (2026-11-26: a
+		// "test 1" waited on Google's "high demand" for the task's five minutes, unanswered)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
 		_ = c.cli.SendChatPresence(ctx, e.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 		r.Recent = c.Recent(r.Chat, 12)
@@ -458,6 +463,9 @@ func (c *Client) ask(r Request, e *events.Message) {
 				c.cfg.Strain(err)
 			}
 			c.log("wa_error", map[string]any{"chat": r.ChatName, "err": err.Error()})
+			sctx, scancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer scancel()
+			_ = c.Send(sctx, e.Info.Chat, Busy, e)
 			return
 		}
 		if strings.TrimSpace(ans) == "" {
