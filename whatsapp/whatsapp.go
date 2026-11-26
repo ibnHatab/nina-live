@@ -48,6 +48,8 @@ type Config struct {
 	Log func(kind string, data map[string]any)
 	// Strain is told of a failure to answer (her task model busy…).
 	Strain func(err error)
+	// Debug: whatsmeow's own log on stdout (linking trouble).
+	Debug bool
 }
 
 // Msg is one message as kept.
@@ -118,7 +120,11 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{cfg: cfg, db: db, cli: whatsmeow.NewClient(dev, waLog.Noop), name: nameRe(cfg.Names),
+	lg := waLog.Noop
+	if cfg.Debug {
+		lg = waLog.Stdout("whatsmeow", "DEBUG", true)
+	}
+	c := &Client{cfg: cfg, db: db, cli: whatsmeow.NewClient(dev, lg), name: nameRe(cfg.Names),
 		groups: map[string]string{}, last: map[string]time.Time{}, busy: map[string]bool{}}
 	c.cli.AddEventHandler(c.on)
 	return c, nil
@@ -178,6 +184,16 @@ func (c *Client) Link(ctx context.Context, phone string) (code string, done <-ch
 		out <- "closed"
 	}()
 	return code, out, nil
+}
+
+// LinkQR pairs her by a QR code scanned on the phone (Linked devices → Link a device): the channel of
+// codes ("code": a new one to show, every 20 s or so) up to "success", "timeout" or "error".
+func (c *Client) LinkQR(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error) {
+	qr, err := c.cli.GetQRChannel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return qr, c.cli.ConnectContext(ctx)
 }
 
 // Connect starts the channel (linked).
