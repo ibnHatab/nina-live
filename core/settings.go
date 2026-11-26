@@ -29,10 +29,15 @@ type Settings struct {
 	WhatsAppShow []string `json:"whatsapp_show,omitempty"`
 }
 
-// WhatsAppShows is her WhatsApp channel as her settings see it: the groups on her screen.
+// WhatsAppShows is her WhatsApp channel as her settings see it: the groups on her screen, its state,
+// and linking from her screens (link, unlink, the groups read again).
 type WhatsAppShows interface {
 	SetShow([]string)
 	Shown() []string
+	Info() map[string]any
+	StartLink(context.Context) error
+	Unlink(context.Context) error
+	RefreshGroups(context.Context)
 }
 
 // UseWhatsApp gives the core her WhatsApp channel (opened after it): the saved groups go to it.
@@ -49,6 +54,28 @@ func (k *Core) UseWhatsApp(w WhatsAppShows) {
 
 // Action is a panel action of Nina's own (false: not hers).
 func (k *Core) Action(action, arg string) (bool, error) {
+	switch action { // her WhatsApp's device: done, not kept as a setting
+	case "whatsapp_link", "whatsapp_unlink", "whatsapp_refresh":
+		k.mu.Lock()
+		w := k.WhatsApp
+		k.mu.Unlock()
+		if w == nil {
+			return true, fmt.Errorf("whatsapp: not enabled in her config (whatsapp.enabled)")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		var err error
+		switch action {
+		case "whatsapp_link":
+			err = w.StartLink(ctx)
+		case "whatsapp_unlink":
+			err = w.Unlink(ctx)
+		default:
+			w.RefreshGroups(ctx)
+		}
+		k.settingsNow()
+		return true, err
+	}
 	k.mu.Lock()
 	st := k.settings
 	k.mu.Unlock()
@@ -156,6 +183,7 @@ func (k *Core) settingsNow() {
 	f := map[string]any{"name": st.Name, "persona": st.Persona}
 	if k.WhatsApp != nil {
 		f["whatsapp_show"] = k.WhatsApp.Shown()
+		f["whatsapp"] = k.WhatsApp.Info()
 	}
 	if k.mood != nil {
 		c := k.mood.C

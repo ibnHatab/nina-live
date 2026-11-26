@@ -5,8 +5,8 @@ package core
 // (scripted answers that read what each request carried). No network, no API key used.
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"

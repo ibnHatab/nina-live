@@ -304,11 +304,12 @@ func main() {
 			Strain: func(err error) { strainOf("whatsapp", err) }})
 		if err != nil {
 			stdlog.Printf("whatsapp: %v", err)
-		} else if !wc.LoggedIn() {
-			stdlog.Printf("whatsapp: not linked yet (nina-whatsapp link PHONE)")
 		} else {
-			wa = wc
+			wa = wc // linked or not: her screens can link it (the WhatsApp card)
 			reads = append(reads, waReadTool(wa))
+			if !wc.LoggedIn() {
+				stdlog.Printf("whatsapp: not linked yet (her WhatsApp card: Link a device; or nina-whatsapp link-qr)")
+			}
 		}
 	}
 	if k.Tasks != nil {
@@ -407,7 +408,9 @@ func main() {
 	if wa != nil { // her screens hear of WhatsApp now; then it connects
 		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 		k.UseWhatsApp(wa) // her settings' groups on her screen
-		if err := wa.Connect(ctx); err != nil {
+		if !wa.LoggedIn() {
+			// connected by its link (StartLink), from her screen
+		} else if err := wa.Connect(ctx); err != nil {
 			stdlog.Printf("whatsapp: %v", err)
 		} else {
 			stdlog.Printf("whatsapp: connected (answers: %s; keeps %v; shows %v)", firstOf(c.WhatsApp.Answer, "named"), c.WhatsApp.Keep, c.WhatsApp.Show)
@@ -599,6 +602,15 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			}
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
+			}
+			if _, ok := e["png"]; ok && kind == "wa_status" { // a WhatsApp link's QR: on her screens, not in the log
+				c := map[string]any{}
+				for k, v := range e {
+					if k != "png" {
+						c[k] = v
+					}
+				}
+				e = c
 			}
 			rec, err := L.Append(now(), "dialog", kind, "", "", e, 1)
 			if err != nil {

@@ -17,16 +17,20 @@ package whatsapp
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -90,6 +94,8 @@ type Client struct {
 	cli  *whatsmeow.Client
 	name *regexp.Regexp
 
+	linking atomic.Bool // a QR link waiting for its scan
+
 	mu     sync.Mutex
 	groups map[string]string // chat JID → its name
 	last   map[string]time.Time
@@ -119,6 +125,7 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	store.SetOSInfo("Nina", [3]uint32{1, 0, 0}) // the phone's Linked devices list shows her as "Nina" (paired from now on)
 	container := sqlstore.NewWithDB(db, "sqlite3", waLog.Noop)
 	if err := container.Upgrade(ctx); err != nil {
 		return nil, fmt.Errorf("whatsapp: store: %w", err)
@@ -207,6 +214,108 @@ func (c *Client) LinkQR(ctx context.Context) (<-chan whatsmeow.QRChannelItem, er
 		return nil, err
 	}
 	return qr, c.cli.ConnectContext(ctx)
+}
+
+// Info is her WhatsApp as her screens show it: linked, connected, the number, how she answers, the
+// groups she is in and those on her screen.
+func (c *Client) Info() map[string]any {
+	c.mu.Lock()
+	var groups []string
+	for _, n := range c.groups {
+		groups = append(groups, n)
+	}
+	mode, keep, show := c.cfg.Mode, append([]string(nil), c.cfg.Keep...), append([]string(nil), c.cfg.Show...)
+	c.mu.Unlock()
+	sortStrings(groups)
+	if mode == "" {
+		mode = "named"
+	}
+	in := map[string]any{"linked": c.LoggedIn(), "connected": c.cli.IsConnected(), "answer": mode, "keep": keep,
+		"show": show, "groups": groups, "linking": c.linking.Load()}
+	if id := c.cli.Store.ID; id != nil {
+		in["number"] = id.User
+		in["name"] = c.cli.Store.PushName
+	}
+	return in
+}
+
+// StartLink pairs her from her screens: QR codes as "wa_status" events (state "qr", png a data URL,
+// a new one every ~20 s), then "linked", or "link_ended" (timeout, error). One at a time; the phone
+// scans it under Linked devices → Link a device. On success she connects and loads her groups.
+func (c *Client) StartLink(ctx context.Context) error {
+	if c.LoggedIn() {
+		return fmt.Errorf("whatsapp: already linked (unlink first)")
+	}
+	if !c.linking.CompareAndSwap(false, true) {
+		return fmt.Errorf("whatsapp: a link is already waiting for its scan")
+	}
+	qr, err := c.LinkQR(context.Background()) // the pairing outlives the panel's request
+	if err != nil {
+		c.linking.Store(false)
+		return err
+	}
+	go func() {
+		defer c.linking.Store(false)
+		n := 0
+		for it := range qr {
+			switch it.Event {
+			case "code":
+				png, err := qrcode.Encode(it.Code, qrcode.Medium, 320)
+				if err != nil {
+					c.log("wa_status", map[string]any{"state": "link_ended", "reason": "qr: " + err.Error()})
+					return
+				}
+				n++
+				c.log("wa_status", map[string]any{"state": "qr", "n": n, "png": "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)})
+			case "success":
+				for i := 0; i < 15 && !c.LoggedIn(); i++ {
+					time.Sleep(time.Second)
+				}
+				c.log("wa_status", map[string]any{"state": "linked"})
+				go func() { time.Sleep(3 * time.Second); c.loadGroups(context.Background()); c.screen() }()
+				return
+			default:
+				reason := it.Event
+				if it.Error != nil {
+					reason += ": " + it.Error.Error()
+				}
+				c.log("wa_status", map[string]any{"state": "link_ended", "reason": reason})
+				return
+			}
+		}
+	}()
+	return nil
+}
+
+// Unlink logs her out of the number (the phone's Linked devices loses her; her keys in the store are
+// gone; her kept messages stay until the store file is deleted).
+func (c *Client) Unlink(ctx context.Context) error {
+	if !c.LoggedIn() {
+		return fmt.Errorf("whatsapp: not linked")
+	}
+	if err := c.cli.Logout(ctx); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.groups = map[string]string{}
+	c.mu.Unlock()
+	c.log("wa_status", map[string]any{"state": "logged_out", "reason": "unlinked from her screen"})
+	return nil
+}
+
+// RefreshGroups reads the groups she is in again (a group she was added to since).
+func (c *Client) RefreshGroups(ctx context.Context) {
+	if c.LoggedIn() && c.cli.IsConnected() {
+		c.loadGroups(ctx)
+	}
+}
+
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && strings.ToLower(s[j]) < strings.ToLower(s[j-1]); j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
 }
 
 // Connect starts the channel (linked).
