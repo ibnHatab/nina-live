@@ -52,6 +52,9 @@ func (k *Core) UseWhatsApp(w WhatsAppShows) {
 	k.settingsNow()
 }
 
+// WhatsAppChanged: her WhatsApp's device changed by itself (linked, its groups read): her screens told.
+func (k *Core) WhatsAppChanged() { k.settingsNow() }
+
 // Action is a panel action of Nina's own (false: not hers).
 func (k *Core) Action(action, arg string) (bool, error) {
 	switch action { // her WhatsApp's device: done, not kept as a setting

@@ -50,6 +50,9 @@ type Config struct {
 	Answer func(ctx context.Context, r Request) (string, error)
 	// Log is her screens' event stream (the card's "whatsapp" and "wa_message").
 	Log func(kind string, data map[string]any)
+	// Changed is told when the device's state changed by itself (a link completed, the groups read):
+	// her screens' picture of it is redrawn
+	Changed func()
 	// Strain is told of a failure to answer (her task model busy…).
 	Strain func(err error)
 	// Debug: whatsmeow's own log on stdout (linking trouble).
@@ -280,7 +283,8 @@ func (c *Client) StartLink(ctx context.Context) error {
 					time.Sleep(time.Second)
 				}
 				c.log("wa_status", map[string]any{"state": "linked"})
-				go func() { time.Sleep(3 * time.Second); c.loadGroups(context.Background()); c.screen() }()
+				c.changed()
+				go func() { time.Sleep(3 * time.Second); c.loadGroups(context.Background()); c.screen(); c.changed() }()
 				return
 			default:
 				reason := it.Event
@@ -315,6 +319,12 @@ func (c *Client) Unlink(ctx context.Context) error {
 func (c *Client) RefreshGroups(ctx context.Context) {
 	if c.LoggedIn() && c.cli.IsConnected() {
 		c.loadGroups(ctx)
+	}
+}
+
+func (c *Client) changed() {
+	if c.cfg.Changed != nil {
+		c.cfg.Changed()
 	}
 }
 

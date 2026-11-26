@@ -301,7 +301,8 @@ func main() {
 					waLog(kind, d)
 				}
 			},
-			Strain: func(err error) { strainOf("whatsapp", err) }})
+			Changed: k.WhatsAppChanged,
+			Strain:  func(err error) { strainOf("whatsapp", err) }})
 		if err != nil {
 			stdlog.Printf("whatsapp: %v", err)
 		} else {
