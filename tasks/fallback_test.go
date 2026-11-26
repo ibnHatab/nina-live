@@ -156,7 +156,13 @@ func TestSetChain(t *testing.T) {
 		t.Fatalf("models: %v %v", all, active)
 	}
 	if err := r.SetChain([]string{"nope/model"}); err == nil {
-		t.Fatal("an unknown model taken")
+		t.Fatal("an unknown provider's model taken")
+	}
+	if err := r.SetChain([]string{"faux_b/their-own-plan-model"}); err != nil { // a provider with a key: any model of it
+		t.Fatal(err)
+	}
+	if _, active = r.Models(); len(active) != 1 || active[0] != "faux_b/their-own-plan-model" {
+		t.Fatalf("their model: %v", active)
 	}
 	if err := r.SetChain([]string{all[1]}); err != nil {
 		t.Fatal(err)

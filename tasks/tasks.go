@@ -242,7 +242,9 @@ func (r *Runner) SetChain(names []string) error {
 	for _, n := range names {
 		a, ok := by[n]
 		if !ok {
-			return fmt.Errorf("tasks: %s is not one of her configured models", n)
+			if a, ok = r.another(n); !ok {
+				return fmt.Errorf("tasks: %s: not one of her configured models, and no key for its provider", n)
+			}
 		}
 		if !seen[n] {
 			seen[n] = true
@@ -258,6 +260,31 @@ func (r *Runner) SetChain(names []string) error {
 // hotFor: how long a model that answered "overloaded" is passed over (Google's "high demand" lasts
 // minutes: each task had spent ~2 min on it before its fallback, 2026-11-26, past a WhatsApp answer's time).
 const hotFor = 5 * time.Minute
+
+// another: a model of a provider whose key her config has, named by the person (provider/id: the
+// model their own plan offers, e.g. an OpenRouter one): pi's catalog entry, else the configured model
+// of that provider with the id changed (same API, same key).
+func (r *Runner) another(name string) (alt, bool) {
+	prov, id, ok := strings.Cut(name, "/")
+	if !ok || id == "" {
+		return alt{}, false
+	}
+	key, ok := r.keys[prov]
+	if !ok {
+		return alt{}, false
+	}
+	if m := ai.GetModel(prov, id); m != nil {
+		return alt{m, key}, true
+	}
+	for _, a := range r.configured() {
+		if string(a.model.Provider) == prov {
+			m := *a.model
+			m.ID, m.Name = id, id
+			return alt{&m, key}, true
+		}
+	}
+	return alt{}, false
+}
 
 // pick: the first model of the chain not overloaded lately (the first, when all are).
 func (r *Runner) pick(chain []alt) int {
