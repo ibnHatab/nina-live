@@ -128,7 +128,8 @@ process: the Go domain agent on libmetis_rt over cgo, the home host in Go
 Code session with the Metis plugin here): kernel surprises written to `.metis/surprises/` then signalled,
 and a package changed on disk (the user merged a rule change) reloaded, a failed load keeping the old rules.
 
-    bash deploy/nuc/install.sh          # build natively, install the systemd user unit (starts nothing)
+(The NUC's own install script is gone: today the rules run inside Nina's one process, `cmd/nina`, built
+by `scripts/persona-build.sh`; a home deploys her with acasa's `install/update.sh`.)
 
 ## Run and test
 
