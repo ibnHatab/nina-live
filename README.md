@@ -22,5 +22,11 @@ Metis and pi, the dataflows and the milestones.
 
     ./build.sh                 # → bin/nina (cgo: metis-lang's libmetis_rt; METIS_LANG_DIR)
     ./build.sh test ./...
+    scripts/persona-build.sh   # the persona whole (metisc, nina, the radar); a machine's update is acasa's install/update.sh
+
+nina-live is the **persona**; [acasa](https://github.com/ibnHatab/acasa) adapts it to a home or a role
+(Home Assistant, dashboards, kiosk, deployment). The experience of building and changing her is kept as
+agent skills in [`skills/`](skills/) (`skills/link.sh` links them into `~/.claude/skills`):
+`nina-persona-build`, `nina-persona-domains`, `nina-persona-testing`, `nina-persona-integration`.
 
 License: [Anti-Capitalist Software License v1.4](LICENSE).
