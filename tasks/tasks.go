@@ -231,7 +231,7 @@ func (r *Runner) agent(t *Task, m *ai.Model) {
 		GetApiKey:    r.keyOf,
 		// the free tier's 503 "high demand" is transient: pi backs off (Retry-After honoured); twice,
 		// then the next model (2026-11-25: six retries took two of the task's three minutes)
-		MaxRetries: 2,
+		MaxRetries: 0, // 2026-11-26: none: an overloaded model hands over at once and is passed over for a while (pick)
 		// …and a short wait for each (pi's default ceiling is a minute: two cost 146 s of a task's five)
 		MaxRetryDelayMs: &retryDelayMs,
 		TimeoutMs:       45000, // a model that does not answer in 45 s hands the task over (3.8 Flash took 175 s, 2026-11-25)
