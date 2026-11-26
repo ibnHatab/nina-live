@@ -95,7 +95,8 @@ type Config struct {
 		Curve     string   `yaml:"curve"`     // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
 		Languages []string `yaml:"languages"` // the stations' languages this place listens to (Radio Browser's: english, romanian…; empty: any)
 	} `yaml:"music"`
-	MCP []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
+	Radar *bool        `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
+	MCP   []mcp.Server `yaml:"mcp"`   // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -299,7 +300,10 @@ func main() {
 	}
 	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
 	go func() {           // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
-		last := ""
+		if c.Radar != nil && !*c.Radar {
+			return // its speakers are not where the radar is (radar: false)
+		}
+		last, stale := "", false
 		for range time.Tick(2 * time.Second) {
 			raw, err := ha.Call("GET", "/api/states/sensor.nina_viewer", nil)
 			if err != nil {
@@ -310,10 +314,22 @@ func main() {
 				Updated    string         `json:"last_updated"`
 				Attributes map[string]any `json:"attributes"`
 			}
-			if json.Unmarshal(raw, &st) != nil || st.Updated == last {
+			if json.Unmarshal(raw, &st) != nil {
 				continue
 			}
-			last = st.Updated
+			// a reading that has not changed in 10 min is a radar gone (its Pi off): nobody, not a person
+			// held at its last distance (2026-11-26: 0.54 m from the day before capped her bubble)
+			if t, err := time.Parse(time.RFC3339Nano, st.Updated); err == nil && time.Since(t) > 10*time.Minute {
+				if !stale {
+					stale = true
+					k.Presence(core.Presence{})
+				}
+				continue
+			}
+			if st.Updated == last {
+				continue
+			}
+			last, stale = st.Updated, false
 			p := core.Presence{Present: st.State == "present"}
 			p.Distance, _ = st.Attributes["distance"].(float64)
 			p.Near, _ = st.Attributes["near"].(bool)

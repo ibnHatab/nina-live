@@ -622,6 +622,8 @@ type Presence struct {
 func (k *Core) Presence(p Presence) {
 	if p.Present {
 		k.Viewer(p.Distance)
+	} else if r, ok := k.Voice().(interface{ SetReach(float64) }); ok {
+		r.SetReach(0) // nobody: her voice carries to the bubble's edge, as the person set it
 	}
 	k.mu.Lock()
 	prev := k.presence
