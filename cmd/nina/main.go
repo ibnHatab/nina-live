@@ -408,13 +408,27 @@ func main() {
 	stageLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 	if wa != nil { // her screens hear of WhatsApp now; then it connects
 		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
-		k.UseWhatsApp(wa) // her settings' groups on her screen
-		if !wa.LoggedIn() {
-			// connected by its link (StartLink), from her screen
-		} else if err := wa.Connect(ctx); err != nil {
-			stdlog.Printf("whatsapp: %v", err)
-		} else {
-			stdlog.Printf("whatsapp: connected (answers: %s; keeps %v; shows %v)", firstOf(c.WhatsApp.Answer, "named"), c.WhatsApp.Keep, c.WhatsApp.Show)
+		k.UseWhatsApp(wa)  // her settings' groups on her screen
+		if wa.LoggedIn() { // connected by its link otherwise (StartLink, from her screen)
+			// in the background, again after a failure (a DNS hiccup at the start had left her offline, and
+			// its 10 s dial had held her panel's start: her settings were said before it listened, 2026-11-27)
+			go func() {
+				wait := 10 * time.Second
+				for {
+					err := wa.Connect(ctx)
+					if err == nil {
+						stdlog.Printf("whatsapp: connected (answers: %s; keeps %v; shows %v)", firstOf(c.WhatsApp.Answer, "named"), c.WhatsApp.Keep, c.WhatsApp.Show)
+						return
+					}
+					stdlog.Printf("whatsapp: %v (again in %s)", err, wait)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(wait):
+					}
+					wait = min(2*wait, 5*time.Minute)
+				}
+			}()
 		}
 	}
 	go logDialogue(ctx, d, L, k.Floor)
