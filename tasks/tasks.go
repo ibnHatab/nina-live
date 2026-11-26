@@ -87,12 +87,16 @@ type Runner struct {
 	cfg   Config
 	key   string
 	model *ai.Model
-	alts  []alt                // the fallbacks: Ask's, and a task's when its model is overloaded
-	hot   map[string]time.Time // a model that answered "overloaded": skipped until then (5 min)
-	keys  map[string]string    // the API keys by provider
-	mu    sync.Mutex
-	n     int
-	live  map[string]*Task
+	alts  []alt // the fallbacks: Ask's, and a task's when its model is overloaded
+	// active: the chain in use, set from her screens (SetChain: a subset of the configured models, in
+	// an order); nil: the configured one (the model, then the fallbacks)
+	cmu    sync.Mutex
+	active []alt
+	hot    map[string]time.Time // a model that answered "overloaded": skipped until then (5 min)
+	keys   map[string]string    // the API keys by provider
+	mu     sync.Mutex
+	n      int
+	live   map[string]*Task
 }
 
 // Task is one run.
@@ -104,7 +108,8 @@ type Task struct {
 	named             map[string]bool // what its calls named (their string arguments, lower case)
 	refusedOn         map[string]bool // … in a call the rules refused (a unit not yet confirmed: worth a retry)
 	Done              chan struct{}
-	start             int // the chain's model it began with (pick)
+	start             int   // the chain's model it began with (pick)
+	chain             []alt // the chain when it began (her screens may change the runner's meanwhile)
 	Result            string
 	Err               error
 	Turns, Calls      int
@@ -188,25 +193,77 @@ func (r *Runner) Delegate(goal, level string) *Task {
 		pending: map[string]bool{}, Done: make(chan struct{})}
 	r.live[t.ID] = t
 	r.mu.Unlock()
-	t.start = r.pick()
-	r.agent(t, r.chain()[t.start].model)
-	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech, "model": r.chain()[t.start].model.ID})
+	t.chain = r.chain()
+	t.start = r.pick(t.chain)
+	r.agent(t, t.chain[t.start].model)
+	r.log("created", t.ID, map[string]any{"goal": goal, "level": level, "mech": r.cfg.Mech, "model": t.chain[t.start].model.ID})
 	go r.run(t)
 	return t
 }
 
-// chain: the model, then its fallbacks.
-func (r *Runner) chain() []alt { return append([]alt{{r.model, r.key}}, r.alts...) }
+// chain: the chain in use: her screens' (SetChain), else the model, then its fallbacks.
+func (r *Runner) chain() []alt {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	if r.active != nil {
+		return append([]alt(nil), r.active...)
+	}
+	return r.configured()
+}
+
+func (r *Runner) configured() []alt { return append([]alt{{r.model, r.key}}, r.alts...) }
+
+// Models: the configured models (the choices: provider/id) and the chain in use, in order.
+func (r *Runner) Models() (all, active []string) {
+	for _, a := range r.configured() {
+		all = append(all, modelKey(a.model))
+	}
+	for _, a := range r.chain() {
+		active = append(active, modelKey(a.model))
+	}
+	return all, active
+}
+
+// SetChain: the models tasks use, in order (provider/id, each one of the configured: their keys are
+// known); empty: the configured chain again.
+func (r *Runner) SetChain(names []string) error {
+	if len(names) == 0 {
+		r.cmu.Lock()
+		r.active = nil
+		r.cmu.Unlock()
+		return nil
+	}
+	by := map[string]alt{}
+	for _, a := range r.configured() {
+		by[modelKey(a.model)] = a
+	}
+	var ch []alt
+	seen := map[string]bool{}
+	for _, n := range names {
+		a, ok := by[n]
+		if !ok {
+			return fmt.Errorf("tasks: %s is not one of her configured models", n)
+		}
+		if !seen[n] {
+			seen[n] = true
+			ch = append(ch, a)
+		}
+	}
+	r.cmu.Lock()
+	r.active = ch
+	r.cmu.Unlock()
+	return nil
+}
 
 // hotFor: how long a model that answered "overloaded" is passed over (Google's "high demand" lasts
 // minutes: each task had spent ~2 min on it before its fallback, 2026-11-26, past a WhatsApp answer's time).
 const hotFor = 5 * time.Minute
 
 // pick: the first model of the chain not overloaded lately (the first, when all are).
-func (r *Runner) pick() int {
+func (r *Runner) pick(chain []alt) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for i, a := range r.chain() {
+	for i, a := range chain {
 		if time.Now().After(r.hot[modelKey(a.model)]) {
 			return i
 		}
@@ -421,8 +478,8 @@ func (r *Runner) run(t *Task) {
 	// the model overloaded: the task goes on with the next model (tasks.fallback, as Ask's), from its
 	// transcript (the calls made stay made, none again), the failed turn dropped; an overloaded model is
 	// passed over by the tasks after it for a while (pick)
-	cur := r.chain()[t.start].model
-	for _, m := range r.chain()[t.start+1:] {
+	cur := t.chain[t.start].model
+	for _, m := range t.chain[t.start+1:] {
 		if !overloaded(t.Err) || ctx.Err() != nil || t.stopped {
 			break
 		}
@@ -696,7 +753,7 @@ func Key(provider, file string) (string, error) {
 // Ask is one answer of the model, no tools: a system prompt and a prompt (the explainer's
 // narration of a trace). Logged (stream task, kind ask).
 func (r *Runner) Ask(ctx context.Context, system, prompt string) (string, error) {
-	chain := append([]alt{{r.model, r.key}}, r.alts...)
+	chain := r.chain()
 	var out string
 	var err error
 	for i, m := range chain {

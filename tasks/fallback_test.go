@@ -133,3 +133,44 @@ func TestSilentModelHandsOver(t *testing.T) {
 		t.Fatalf("took %s", d)
 	}
 }
+
+// her screens choose the chain: a subset of the configured models in an order; tasks then start on
+// its first; an unknown model is refused; empty: the configured chain again
+func TestSetChain(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "key")
+	os.WriteFile(key, []byte("faux"), 0o600)
+	a := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux_a"})
+	t.Cleanup(a.Unregister)
+	b := providers.RegisterFauxProvider(providers.RegisterFauxProviderOptions{Provider: "faux_b"})
+	t.Cleanup(b.Unregister)
+	b.SetResponses([]providers.FauxResponseStep{
+		providers.FauxStatic(providers.FauxAssistantMessage(ai.ContentList{providers.FauxText("from b")}, ai.StopStop)),
+	})
+	r, err := New(Config{ModelValue: a.GetModel(), KeyFile: key, System: "test",
+		Fallbacks: []Fallback{{ModelValue: b.GetModel(), KeyFile: key}}, Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, active := r.Models()
+	if len(all) != 2 || strings.Join(all, ",") != strings.Join(active, ",") {
+		t.Fatalf("models: %v %v", all, active)
+	}
+	if err := r.SetChain([]string{"nope/model"}); err == nil {
+		t.Fatal("an unknown model taken")
+	}
+	if err := r.SetChain([]string{all[1]}); err != nil {
+		t.Fatal(err)
+	}
+	if _, active = r.Models(); len(active) != 1 || active[0] != all[1] {
+		t.Fatalf("active: %v", active)
+	}
+	task := r.Delegate("hi", "info")
+	<-task.Done
+	if task.Err != nil || task.Result != "from b" {
+		t.Fatalf("err %v result %q", task.Err, task.Result)
+	}
+	r.SetChain(nil)
+	if _, active = r.Models(); len(active) != 2 {
+		t.Fatalf("back: %v", active)
+	}
+}

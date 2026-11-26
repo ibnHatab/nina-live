@@ -27,6 +27,9 @@ type Settings struct {
 	// WhatsAppShow: the WhatsApp groups on her screen's card, by name (the first the card's own; nil:
 	// her config's whatsapp.show)
 	WhatsAppShow []string `json:"whatsapp_show,omitempty"`
+	// TaskModels: her tasks' models in order (provider/id, of her config's model and fallbacks; nil:
+	// her config's chain)
+	TaskModels []string `json:"task_models,omitempty"`
 }
 
 // WhatsAppShows is her WhatsApp channel as her settings see it: the groups on her screen, its state,
@@ -87,6 +90,13 @@ func (k *Core) Action(action, arg string) (bool, error) {
 		st.Name = strings.TrimSpace(arg)
 	case "persona":
 		st.Persona = strings.TrimSpace(arg)
+	case "task_models": // "google/gemini-3.8-flash, openrouter/deepseek/deepseek-v4.1-flash"; "": her config's
+		st.TaskModels = nil
+		for _, m := range strings.Split(arg, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				st.TaskModels = append(st.TaskModels, m)
+			}
+		}
 	case "whatsapp_show": // "Office, Pero Theia"
 		st.WhatsAppShow = nil
 		for _, g := range strings.Split(arg, ",") {
@@ -170,8 +180,14 @@ func (k *Core) applySettings(st Settings) error {
 			v.Context("name", "")
 		}
 	}
+	var chainErr error
+	if k.Tasks != nil { // last: a chain naming a model her config no longer has keeps the rest of her settings
+		if chainErr = k.Tasks.SetChain(st.TaskModels); chainErr != nil {
+			k.Tasks.SetChain(nil) // her config's chain
+		}
+	}
 	k.settingsNow()
-	return nil
+	return chainErr
 }
 
 // settingsNow tells her screens the settings, with what they can choose from.
@@ -184,6 +200,10 @@ func (k *Core) settingsNow() {
 	st := k.settings
 	k.mu.Unlock()
 	f := map[string]any{"name": st.Name, "persona": st.Persona}
+	if k.Tasks != nil {
+		all, active := k.Tasks.Models()
+		f["task_models"] = map[string]any{"all": all, "active": active}
+	}
 	if k.WhatsApp != nil {
 		f["whatsapp_show"] = k.WhatsApp.Shown()
 		f["whatsapp"] = k.WhatsApp.Info()
