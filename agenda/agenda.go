@@ -115,7 +115,11 @@ func (h *Host) write(kind, target string, p map[string]any) {
 		err = fmt.Errorf("no Home Assistant")
 	case kind == "event":
 		var start time.Time
-		if start, err = parseTime(str(p["start"]), h.now()); err == nil {
+		at := str(p["start"])
+		if at == "" {
+			at = str(p["due"]) // the voice put the time there (pero, 2026-11-26: the event had gone to the next hour)
+		}
+		if start, err = parseTime(at, h.now()); err == nil {
 			mins := num(p["minutes"])
 			if mins <= 0 {
 				mins = 30

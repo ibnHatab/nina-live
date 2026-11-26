@@ -459,7 +459,7 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 	}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
-	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Dentist", "start": "2026-11-25T10:00", "minutes": 60})
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Dentist", "due": "2026-11-25T10:00:00", "minutes": 60}) // the time in due (pero's voice)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Buy batteries", "due": "2026-11-27"})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
