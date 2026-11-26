@@ -50,6 +50,12 @@ type Config struct {
 	Strain func(err error)
 	// Debug: whatsmeow's own log on stdout (linking trouble).
 	Debug bool
+	// Mode: "named" (default: direct messages, and groups naming her), "self" (only the number's
+	// own "Message yourself" chat: the person's primary number, 2026-11-26; she never writes to anyone
+	// else) or "none" (read only).
+	Mode string
+	// Keep: the chats kept (stored, shown, readable): "self", chat names, or "all"; empty: all.
+	Keep []string
 }
 
 // Busy is her word when no answer came in time (her models overloaded).
@@ -73,6 +79,7 @@ type Msg struct {
 type Request struct {
 	Msg
 	Group  bool
+	Self   bool  // the number's own chat: the person writing to her
 	Recent []Msg // oldest first, the request last
 }
 
@@ -324,31 +331,59 @@ func (c *Client) on(evt any) {
 	}
 }
 
+// isSelf: the number's own chat ("Message yourself").
+func (c *Client) isSelf(chat types.JID) bool {
+	if c.cli.Store.ID == nil || chat.Server == types.GroupServer {
+		return false
+	}
+	return chat.User == c.cli.Store.ID.User || (!c.cli.Store.LID.IsEmpty() && chat.User == c.cli.Store.LID.User)
+}
+
+// keeps: whether a chat is kept (Keep: "self", its name, "all"; none listed: all).
+func (c *Client) keeps(name string, self bool) bool {
+	if len(c.cfg.Keep) == 0 {
+		return true
+	}
+	for _, k := range c.cfg.Keep {
+		if strings.EqualFold(k, "all") || (self && strings.EqualFold(k, "self")) || strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// Prefix: her words in the self-chat, where hers and the person's both appear as theirs.
+const Prefix = "Nina: "
+
 func (c *Client) message(e *events.Message) {
 	ctx := context.Background()
 	t, kind := text(e.Message)
 	if kind == "other" && t == "" {
 		return // receipts, reactions, protocol messages
 	}
+	if e.Info.IsFromMe && c.cli.Store.ID != nil && e.Info.Sender.Device == c.cli.Store.ID.Device {
+		return // sent by her (this device): kept by Send, never answered
+	}
+	self := c.isSelf(e.Info.Chat)
 	m := Msg{ID: e.Info.ID, Chat: e.Info.Chat.String(), Sender: e.Info.Sender.ToNonAD().String(), SenderName: e.Info.PushName,
 		At: e.Info.Timestamp, Text: t, Kind: kind, FromMe: e.Info.IsFromMe}
-	if e.Info.IsGroup {
+	switch {
+	case e.Info.IsGroup:
 		m.ChatName = c.groupName(ctx, e.Info.Chat)
-	} else {
+	case self:
+		m.ChatName = "self"
+	default:
 		m.ChatName = e.Info.PushName
 	}
-	if !m.FromMe {
-		switch ci := contextOf(e.Message); {
-		case !e.Info.IsGroup:
-			m.Addressed = true
-		case c.name.MatchString(lower(t)):
-			m.Addressed = true
-		case ci != nil:
-			for _, j := range ci.GetMentionedJID() {
-				m.Addressed = m.Addressed || c.mine(j)
-			}
-			m.Addressed = m.Addressed || c.mine(ci.GetParticipant())
-		}
+	if !c.keeps(m.ChatName, self) {
+		return // not hers to keep (the person's other chats)
+	}
+	switch c.cfg.Mode {
+	case "self":
+		m.Addressed = self && strings.TrimSpace(t) != "" && !strings.HasPrefix(t, Prefix)
+	case "none":
+	default:
+		c.addressed(&m, e, t)
 	}
 	c.keep(m)
 	if c.shown(m.ChatName) {
@@ -363,7 +398,24 @@ func (c *Client) message(e *events.Message) {
 		if err := c.cli.MarkRead(ctx, []types.MessageID{e.Info.ID}, time.Now(), e.Info.Chat, sender); err != nil {
 			c.log("wa_error", map[string]any{"err": "read: " + err.Error()})
 		}
-		c.ask(Request{Msg: m, Group: e.Info.IsGroup}, e)
+		c.ask(Request{Msg: m, Group: e.Info.IsGroup, Self: self}, e)
+	}
+}
+
+// addressed: "named" — a direct message, or a group's naming her or replying to hers.
+func (c *Client) addressed(m *Msg, e *events.Message, t string) {
+	if !m.FromMe {
+		switch ci := contextOf(e.Message); {
+		case !e.Info.IsGroup:
+			m.Addressed = true
+		case c.name.MatchString(lower(t)):
+			m.Addressed = true
+		case ci != nil:
+			for _, j := range ci.GetMentionedJID() {
+				m.Addressed = m.Addressed || c.mine(j)
+			}
+			m.Addressed = m.Addressed || c.mine(ci.GetParticipant())
+		}
 	}
 }
 
@@ -510,6 +562,9 @@ func (c *Client) ask(r Request, e *events.Message) {
 
 // Send posts text to a chat; in a group, quoting the message it answers (nil: none).
 func (c *Client) Send(ctx context.Context, chat types.JID, body string, quote *events.Message) error {
+	if c.isSelf(chat) && !strings.HasPrefix(body, Prefix) {
+		body = Prefix + body
+	}
 	msg := &waE2E.Message{Conversation: proto.String(body)}
 	if quote != nil && quote.Info.IsGroup {
 		msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(body), ContextInfo: &waE2E.ContextInfo{
@@ -520,7 +575,9 @@ func (c *Client) Send(ctx context.Context, chat types.JID, body string, quote *e
 		return err
 	}
 	name := chat.User
-	if chat.Server == types.GroupServer {
+	if c.isSelf(chat) {
+		name = "self"
+	} else if chat.Server == types.GroupServer {
 		name = c.groupName(ctx, chat)
 	} else if quote != nil {
 		name = quote.Info.PushName

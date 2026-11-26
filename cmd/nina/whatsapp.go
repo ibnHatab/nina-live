@@ -16,7 +16,9 @@ import (
 func waAnswer(k *core.Core) func(ctx context.Context, r whatsapp.Request) (string, error) {
 	return func(ctx context.Context, r whatsapp.Request) (string, error) {
 		where := "directly"
-		if r.Group {
+		if r.Self {
+			where = "in the person's own WhatsApp chat (their \"Message yourself\" notes: it is them, writing to you)"
+		} else if r.Group {
 			where = fmt.Sprintf("in the WhatsApp group %q", r.ChatName)
 		}
 		said := fmt.Sprintf("%q", r.Text)

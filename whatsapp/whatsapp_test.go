@@ -34,3 +34,19 @@ func TestText(t *testing.T) {
 		}
 	}
 }
+
+// What is kept: none listed, all; else self, the names, or all.
+func TestKeeps(t *testing.T) {
+	c := &Client{}
+	if !c.keeps("Family", false) {
+		t.Fatal("none listed: all kept")
+	}
+	c.cfg.Keep = []string{"self"}
+	if !c.keeps("self", true) || c.keeps("Family", false) || c.keeps("Ana", false) {
+		t.Fatal("self only")
+	}
+	c.cfg.Keep = []string{"self", "Family"}
+	if !c.keeps("family", false) || c.keeps("Ana", false) {
+		t.Fatal("self and a group")
+	}
+}

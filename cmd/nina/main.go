@@ -104,6 +104,8 @@ type Config struct {
 		Show    []string      `yaml:"show"`     // groups on her screen's card, by name
 		MinGap  time.Duration `yaml:"min_gap"`  // between two answers in one chat (10 s)
 		PerHour int           `yaml:"per_hour"` // answers an hour in all (30)
+		Answer  string        `yaml:"answer"`   // named (direct and named in groups) | self (only the number's own chat) | none
+		Keep    []string      `yaml:"keep"`     // chats kept: self, names, all (none: all)
 	} `yaml:"whatsapp"`
 	Radar *bool        `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
 	MCP   []mcp.Server `yaml:"mcp"`   // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
@@ -261,7 +263,7 @@ func main() {
 	if c.WhatsApp.Enabled && k.Tasks != nil {
 		w := c.WhatsApp
 		wc, err := whatsapp.Open(ctx, whatsapp.Config{Store: expand(firstOf(w.Store, "~/.local/share/nina/whatsapp.db")), Names: w.Names,
-			Show: w.Show, MinGap: w.MinGap, PerHour: w.PerHour, Answer: waAnswer(k),
+			Show: w.Show, MinGap: w.MinGap, PerHour: w.PerHour, Answer: waAnswer(k), Mode: w.Answer, Keep: w.Keep,
 			Log: func(kind string, d map[string]any) {
 				if waLog != nil {
 					waLog(kind, d)
@@ -375,7 +377,7 @@ func main() {
 		if err := wa.Connect(ctx); err != nil {
 			stdlog.Printf("whatsapp: %v", err)
 		} else {
-			stdlog.Printf("whatsapp: connected (answers named and direct messages; shows %v)", c.WhatsApp.Show)
+			stdlog.Printf("whatsapp: connected (answers: %s; keeps %v; shows %v)", firstOf(c.WhatsApp.Answer, "named"), c.WhatsApp.Keep, c.WhatsApp.Show)
 		}
 	}
 	go logDialogue(ctx, d, L, k.Floor)
