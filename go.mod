@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ibnHatab/acasa v0.0.0-20261124222510-b6b9a6b39e8b
-	github.com/ibnHatab/fsttm-live v0.0.0-20261126095632-627c9e99cdae
+	github.com/ibnHatab/fsttm-live v0.0.0-20261126182925-a5c99e4776ec
 	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e

@@ -36,6 +36,7 @@ import (
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/websearch"
 	"github.com/ibnHatab/nina-live/whatsapp"
+	"github.com/ibnHatab/nina-live/youtube"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	"google.golang.org/genai"
 	"gopkg.in/yaml.v3"
@@ -96,6 +97,11 @@ type Config struct {
 		Curve     string   `yaml:"curve"`     // the player's volume law: mpd (software mixer) | pulse (MPD's mixer_type hardware on PulseAudio)
 		Languages []string `yaml:"languages"` // the stations' languages this place listens to (Radio Browser's: english, romanian…; empty: any)
 	} `yaml:"music"`
+	// YouTube (youtube/): her screen's videos found by search (an API key), her own playlists by name
+	YouTube struct {
+		Key       string            `yaml:"key"`       // the API key's file
+		Playlists map[string]string `yaml:"playlists"` // her own: name → id (unlisted ones the key cannot list)
+	} `yaml:"youtube"`
 	// WhatsApp (whatsapp/): her own number's channel, a linked device (nina-whatsapp link PHONE first)
 	WhatsApp struct {
 		Enabled bool          `yaml:"enabled"`
@@ -258,6 +264,16 @@ func main() {
 		ws.Strain = func(err error) { strainOf("search", err) }
 		reads = append(reads, ws.Tool())
 	}
+	var stageLog func(string, map[string]any) // her screens, once her voice is (the stage's "stage" events)
+	yt, err := youtube.Load(expand(firstOf(c.YouTube.Key, "~/.config/nina/youtube.key")), c.YouTube.Playlists)
+	if err != nil {
+		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
+	}
+	reads = append(reads, screenTool(yt, func(d map[string]any) {
+		if stageLog != nil {
+			stageLog("stage", d)
+		}
+	}))
 	var wa *whatsapp.Client // her WhatsApp channel: opened here (its read tool), connected once her voice is
 	var waLog func(string, map[string]any)
 	if c.WhatsApp.Enabled && k.Tasks != nil {
@@ -371,6 +387,7 @@ func main() {
 			k.Presence(p)
 		}
 	}()
+	stageLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 	if wa != nil { // her screens hear of WhatsApp now; then it connects
 		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 		k.UseWhatsApp(wa) // her settings' groups on her screen
@@ -455,25 +472,6 @@ func readTools(o *hass.Observer) []tasks.Tool {
 					return "done", "no calendar is connected to Home Assistant yet"
 				}
 				return "done", strings.Join(out, "\n")
-			}},
-		// the screen's stage (acasa ha-ui nina-stage-card, 2026-11-26): videos or photos large on her screen
-		// on request, closed by the person's ✕ or by her; the screen acts on this call's event, the
-		// call itself only answers
-		{Name: "screen", Domain: "screen", Description: "Show something large on Nina's screen, over its right side, " +
-			"until it is closed: the videos (the playlist on YouTube, with sound) or the photos (the gallery); " +
-			"or close what is shown. Only when the person asks to see videos or photos, or to close them.",
-			Parameters: obj(map[string]any{"show": map[string]any{"type": "string", "enum": []any{"videos", "photos", "close"},
-				"description": "videos, photos, or close"}}),
-			Call: func(_ context.Context, a map[string]any) (string, string) {
-				switch a["show"] {
-				case "videos":
-					return "done", "the videos are on the screen; the person can close them with ✕"
-				case "photos":
-					return "done", "the photos are on the screen; the person can close them with ✕"
-				case "close":
-					return "done", "closed"
-				}
-				return "error", "show: videos, photos or close"
 			}},
 		{Name: "weather", Domain: "weather", Description: "The weather forecast: the next days, or the next hours.",
 			Parameters: obj(map[string]any{"hourly": map[string]any{"type": "boolean", "description": "the next hours instead of the next days"}}),
