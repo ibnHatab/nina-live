@@ -229,12 +229,30 @@ func (h *Host) Set() []string {
 		s := h.slots[name]
 		switch s.state {
 		case "counting":
-			out = append(out, fmt.Sprintf("%s at %s", s.subject, time.Unix(int64(s.deadline), 0).Format("15:04")))
+			// the time left with it: she reckoned it wrong from the clock time alone (2026-11-26: "about
+			// two minutes" for 1.5), and read the line out as it was
+			out = append(out, fmt.Sprintf("%s at %s, %s from now", s.subject, time.Unix(int64(s.deadline), 0).Format("15:04"), left(s.deadline-h.Now())))
 		case "waiting":
 			out = append(out, fmt.Sprintf("%s when %s", s.subject, occasion[s.scene]))
 		}
 	}
 	return out
+}
+
+// left: a countdown's time left, to the 10 s under three minutes.
+func left(sec float64) string {
+	if sec >= 180 {
+		return minutes(sec)
+	}
+	t := int(math.Round(math.Max(sec, 0)/10) * 10)
+	switch m, s := t/60, t%60; {
+	case m == 0:
+		return fmt.Sprintf("%d s", s)
+	case s == 0:
+		return fmt.Sprintf("%d min", m)
+	default:
+		return fmt.Sprintf("%d min %d s", m, s)
+	}
 }
 
 func minutes(sec float64) string {
