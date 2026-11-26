@@ -395,6 +395,25 @@ func readTools(o *hass.Observer) []tasks.Tool {
 				}
 				return "done", strings.Join(out, "\n")
 			}},
+		// the screen's stage (acasa ha-ui nina-stage-card, 2026-11-26): videos or photos large on her screen
+		// on request, closed by the person's ✕ or by her; the screen acts on this call's event, the
+		// call itself only answers
+		{Name: "screen", Domain: "screen", Description: "Show something large on Nina's screen, over its right side, " +
+			"until it is closed: the videos (the playlist on YouTube, with sound) or the photos (the gallery); " +
+			"or close what is shown. Only when the person asks to see videos or photos, or to close them.",
+			Parameters: obj(map[string]any{"show": map[string]any{"type": "string", "enum": []any{"videos", "photos", "close"},
+				"description": "videos, photos, or close"}}),
+			Call: func(_ context.Context, a map[string]any) (string, string) {
+				switch a["show"] {
+				case "videos":
+					return "done", "the videos are on the screen; the person can close them with ✕"
+				case "photos":
+					return "done", "the photos are on the screen; the person can close them with ✕"
+				case "close":
+					return "done", "closed"
+				}
+				return "error", "show: videos, photos or close"
+			}},
 		{Name: "weather", Domain: "weather", Description: "The weather forecast: the next days, or the next hours.",
 			Parameters: obj(map[string]any{"hourly": map[string]any{"type": "boolean", "description": "the next hours instead of the next days"}}),
 			Call: func(ctx context.Context, a map[string]any) (string, string) {
