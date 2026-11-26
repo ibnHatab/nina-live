@@ -13,7 +13,10 @@ import (
 // (her playlist; a search's videos, from any channel; one of her playlists by name; a public one),
 // the photos (an album by name), or close. What it found goes to her screens as a "stage" event
 // (videos: the ids, in order, ⏮ ⏭ between them; playlist: an id; album: a name).
-func screenTool(yt *youtube.Client, stage func(map[string]any)) tasks.Tool {
+//
+// albums lists the Google Photos albums there are (nil: not checked): an album asked for by name is
+// looked up first, so she knows when it is not there (the screen alone had said "no album").
+func screenTool(yt *youtube.Client, albums func(context.Context) ([]string, error), stage func(map[string]any)) tasks.Tool {
 	return tasks.Tool{Name: "screen", Domain: "screen",
 		Description: "Show something large on Nina's screen, over its right side, until it is closed: videos (her own playlist; " +
 			"or a YouTube search, from any channel: query; or a playlist by its name: playlist), photos (the gallery, or an album " +
@@ -39,11 +42,25 @@ func screenTool(yt *youtube.Client, stage func(map[string]any)) tasks.Tool {
 					"pause": "paused", "play": "playing"}[str("show")]
 			case "photos":
 				ev := map[string]any{"show": "photos"}
-				if al := str("album"); al != "" {
+				al := str("album")
+				if al != "" && albums != nil {
+					have, err := albums(ctx)
+					switch {
+					case err != nil: // not known: the screen looks for it, and says when it is not there
+					case findAlbum(have, al) == "":
+						if len(have) == 0 {
+							return "done", "there is no album " + al + ": Google Photos has none you can show (you see only the albums you made yourself); nothing was opened"
+						}
+						return "done", "there is no album " + al + "; the albums there are: " + strings.Join(have, ", ") + "; nothing was opened"
+					default:
+						al = findAlbum(have, al)
+					}
+				}
+				if al != "" {
 					ev["album"] = al
 				}
 				stage(ev)
-				return "done", "the photos are on the screen" + map[bool]string{true: " (the album " + str("album") + ")", false: ""}[str("album") != ""] +
+				return "done", "the photos are on the screen" + map[bool]string{true: " (the album " + al + ")", false: ""}[al != ""] +
 					"; the person can close them with ✕"
 			case "videos":
 				ev := map[string]any{"show": "videos"}

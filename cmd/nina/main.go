@@ -269,7 +269,7 @@ func main() {
 	if err != nil {
 		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
 	}
-	reads = append(reads, screenTool(yt, func(d map[string]any) {
+	reads = append(reads, screenTool(yt, func(ctx context.Context) ([]string, error) { return googleAlbums(ctx, ha) }, func(d map[string]any) {
 		if stageLog != nil {
 			stageLog("stage", d)
 		}

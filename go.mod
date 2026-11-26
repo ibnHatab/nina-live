@@ -3,8 +3,9 @@ module github.com/ibnHatab/nina-live
 go 1.26.0
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/ibnHatab/acasa v0.0.0-20261124222510-b6b9a6b39e8b
-	github.com/ibnHatab/fsttm-live v0.0.0-20261126184204-a2b8f9b41948
+	github.com/ibnHatab/fsttm-live v0.0.0-20261126191347-2233d382141f
 	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -30,7 +31,6 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/ibnHatab/fsttm/go v0.0.0-20261122153613-e28e1af02c58 // indirect
 	github.com/k2-fsa/sherpa-onnx-go v1.13.6 // indirect
 	github.com/k2-fsa/sherpa-onnx-go-linux v1.13.6 // indirect
