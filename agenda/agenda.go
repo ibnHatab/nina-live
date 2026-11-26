@@ -44,8 +44,11 @@ type Host struct {
 	Names map[string]string
 	// Call is a Home Assistant service call (nil: none: every write fails)
 	Call func(ctx context.Context, domain, service string, data map[string]any) error
-	Save func(Write)
-	Now  func() time.Time
+	// Items lists a todo entity's items (todo.get_items): an item to remove is found by its name as said
+	// (nil: removed by the name as said)
+	Items func(ctx context.Context, entity string) ([]string, error)
+	Save  func(Write)
+	Now   func() time.Time
 
 	mu     sync.Mutex
 	failed []string
@@ -55,11 +58,11 @@ type Host struct {
 // own Google calendar (read only, by the rules), Google Tasks' default list.
 var Default = map[string]string{
 	"nina_cal": "calendar.nina", "nina_local": "calendar.nina_local", "person_cal": "calendar.aaosdeveloper_gmail_com",
-	"my_tasks": "todo.my_tasks", "nina_todo": "todo.nina_local",
+	"my_tasks": "todo.my_tasks", "nina_todo": "todo.nina_local", "shopping": "todo.shopping_list",
 }
 
 var names = map[string]string{"nina_cal": "my calendar", "nina_local": "the local test calendar",
-	"person_cal": "your calendar", "my_tasks": "your tasks", "nina_todo": "my local list"}
+	"person_cal": "your calendar", "my_tasks": "your tasks", "nina_todo": "my local list", "shopping": "the shopping list"}
 
 func (h *Host) Tick(map[string]int) []string {
 	h.mu.Lock()
@@ -83,7 +86,7 @@ func (h *Host) Name(handle string) (string, bool) {
 // OnEvent takes an accepted write (an event is named after its rule: event[C=nina_cal]).
 func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 	rule, _, _ := strings.Cut(name, "[")
-	if (rule != "event" && rule != "todo") || len(args) == 0 {
+	if (rule != "event" && rule != "todo" && rule != "remove") || len(args) == 0 {
 		return
 	}
 	target := args[0]
@@ -129,6 +132,23 @@ func (h *Host) write(kind, target string, p map[string]any) {
 			}
 		}
 		err = h.call("todo", "add_item", data)
+	case kind == "remove":
+		item := w.Summary
+		if h.Items != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			items, e := h.Items(ctx, w.Entity)
+			cancel()
+			if e != nil {
+				err = e
+				break
+			}
+			if item = Match(items, w.Summary); item == "" {
+				err = fmt.Errorf("no %q on it", w.Summary)
+				break
+			}
+		}
+		w.Summary = item
+		err = h.call("todo", "remove_item", map[string]any{"entity_id": w.Entity, "item": item})
 	}
 	if err != nil {
 		w.Err = err.Error()
@@ -139,6 +159,35 @@ func (h *Host) write(kind, target string, p map[string]any) {
 	if h.Save != nil {
 		h.Save(w)
 	}
+}
+
+// Match is the list's own item for one said ("call the plumber" → "Call the plumber"): the same
+// words, case and punctuation aside; else the one item containing them; else "".
+func Match(items []string, said string) string {
+	key := func(s string) string {
+		return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+			if r == '\'' || r == '"' || r == '.' || r == ',' || r == '!' || r == '?' {
+				return -1
+			}
+			return r
+		}, strings.ToLower(s))), " ")
+	}
+	k := key(said)
+	for _, it := range items {
+		if key(it) == k {
+			return it
+		}
+	}
+	var one string
+	for _, it := range items {
+		if k != "" && strings.Contains(key(it), k) {
+			if one != "" {
+				return "" // more than one: not this way
+			}
+			one = it
+		}
+	}
+	return one
 }
 
 func (h *Host) call(domain, service string, data map[string]any) error {

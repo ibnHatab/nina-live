@@ -20,6 +20,7 @@ if [ "${1:-}" = "exp" ]; then        # the experiments (cmd/nina-exp): ./build.s
 fi
 if [ "${1:-}" = "test" ] || [ "${1:-}" = "vet" ]; then
   verb=$1; shift
+  export METISC="${METISC:-$METIS_LANG_DIR/src/metisc}"   # core's rigs run the rules (they skipped without it)
   exec go "$verb" "${@:-./...}"
 fi
 # the home's composition image (catalog/domains/build/, not committed: image.golden pins its hash)

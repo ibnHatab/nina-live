@@ -893,3 +893,51 @@ func TestAnAPIErrorIsHerStrain(t *testing.T) {
 		t.Fatalf("a success after the strain was not told: %q", lines())
 	}
 }
+
+// TestNinaTakesItemsOffLists: REMOVE finds the list's own item by its name as said and removes it;
+// the shopping list is a list of its own; a calendar is not a list to take things off.
+func TestNinaTakesItemsOffLists(t *testing.T) {
+	var mu sync.Mutex
+	var calls []map[string]any
+	rigAgenda = &agenda.Host{Entities: agenda.Default,
+		Call: func(_ context.Context, domain, service string, data map[string]any) error {
+			mu.Lock()
+			defer mu.Unlock()
+			d := map[string]any{"service": domain + "." + service}
+			for k, v := range data {
+				d[k] = v
+			}
+			calls = append(calls, d)
+			return nil
+		},
+		Items: func(_ context.Context, entity string) ([]string, error) {
+			return map[string][]string{"todo.my_tasks": {"Call the plumber", "Buy batteries"}, "todo.shopping_list": {"Milk"}}[entity], nil
+		}}
+	defer func() { rigAgenda = nil }()
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Milk", "list": "shopping"})
+	time.Sleep(100 * time.Millisecond)
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "REMOVE", "summary": "call the plumber"})
+	time.Sleep(100 * time.Millisecond)
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "REMOVE", "summary": "milk", "list": "shopping list"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if o := r.k.Home.Call(ctx, "home_agenda", map[string]any{"intent": "REMOVE", "summary": "Dentist", "list": "nina"}); o.Status != "refused" {
+		t.Fatalf("off a calendar: %s %s", o.Status, o.Text)
+	}
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 3 {
+		t.Fatalf("calls: %v", calls)
+	}
+	if c := calls[0]; c["service"] != "todo.add_item" || c["entity_id"] != "todo.shopping_list" || c["item"] != "Milk" {
+		t.Fatalf("to the shopping list: %v", c)
+	}
+	if c := calls[1]; c["service"] != "todo.remove_item" || c["entity_id"] != "todo.my_tasks" || c["item"] != "Call the plumber" {
+		t.Fatalf("off my tasks: %v", c)
+	}
+	if c := calls[2]; c["service"] != "todo.remove_item" || c["entity_id"] != "todo.shopping_list" || c["item"] != "Milk" {
+		t.Fatalf("off the shopping list: %v", c)
+	}
+}

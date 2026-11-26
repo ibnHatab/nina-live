@@ -6,4 +6,4 @@ program: agenda.llp
 intent: {spec: intent.yaml}
 clock: {beats: 1, period: 1}
 records: records/
-commands: [event, todo]
+commands: [event, todo, remove]

@@ -194,6 +194,22 @@ func main() {
 	ag := &agenda.Host{Entities: ents, Call: func(ctx context.Context, domain, service string, data map[string]any) error {
 		_, err := ha.Service(ctx, domain, service, data, false)
 		return err
+	}, Items: func(ctx context.Context, entity string) ([]string, error) {
+		r, err := ha.Service(ctx, "todo", "get_items", map[string]any{"entity_id": entity}, true)
+		if err != nil {
+			return nil, err
+		}
+		var l struct {
+			Items []struct{ Summary string } `json:"items"`
+		}
+		if err := json.Unmarshal(r[entity], &l); err != nil {
+			return nil, err
+		}
+		var out []string
+		for _, it := range l.Items {
+			out = append(out, it.Summary)
+		}
+		return out, nil
 	}}
 	mu := &music.Host{Call: func(ctx context.Context, domain, service string, data map[string]any) error {
 		_, err := ha.Service(ctx, domain, service, data, false)
