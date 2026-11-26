@@ -174,6 +174,14 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 	switch name {
 	case "set":
 		m := number(payload["minutes"])
+		if at, ok := payload["at"].(string); ok && strings.TrimSpace(at) != "" { // an alarm at a clock time
+			if t, err := clockTime(at, time.Unix(int64(h.Now()), 0)); err == nil {
+				m = t.Sub(time.Unix(int64(h.Now()), 0)).Minutes()
+			}
+			if s, _ := payload["subject"].(string); strings.TrimSpace(s) == "" {
+				payload["subject"] = "the alarm"
+			}
+		}
 		if m <= 0 {
 			m = 1
 		}
@@ -266,6 +274,26 @@ func minutes(sec float64) string {
 		return fmt.Sprintf("%.0f min", m)
 	}
 	return fmt.Sprintf("%.1f h", m/60)
+}
+
+// clockTime: an alarm's time, HH:MM (today, or tomorrow when it has passed) or YYYY-MM-DDTHH:MM, local.
+func clockTime(s string, now time.Time) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	for _, f := range []string{"2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02T15:04:05"} {
+		if t, err := time.ParseInLocation(f, s, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	for _, f := range []string{"15:04", "15.04", "3:04pm", "3:04 pm", "3pm", "3 pm"} {
+		if t, err := time.ParseInLocation(f, strings.ToLower(s), time.Local); err == nil {
+			d := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
+			if !d.After(now) {
+				d = d.AddDate(0, 0, 1)
+			}
+			return d, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("a time I can't read: %q", s)
 }
 
 func number(v any) float64 {

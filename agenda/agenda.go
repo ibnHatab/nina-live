@@ -102,11 +102,13 @@ func (h *Host) now() time.Time {
 
 func (h *Host) write(kind, target string, p map[string]any) {
 	w := Write{Kind: kind, Target: target, Entity: h.Entities[target], Summary: str(p["summary"])}
-	if w.Summary == "" {
+	if w.Summary == "" && kind == "event" {
 		w.Summary = "Reminder"
 	}
 	var err error
 	switch {
+	case w.Summary == "": // a to-do or a removal of nothing (2026-11-26: "what alarms do I have" had added "Reminder")
+		err = fmt.Errorf("no item named")
 	case w.Entity == "":
 		err = fmt.Errorf("no entity for %s", target)
 	case h.Call == nil:
