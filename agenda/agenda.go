@@ -138,6 +138,10 @@ func (h *Host) write(kind, target string, p map[string]any) {
 			}
 		}
 		err = h.call("todo", "add_item", data)
+		if err != nil && strings.Contains(err.Error(), "does not support setting field: description") {
+			delete(data, "description") // Home Assistant's own shopping list has no description (Pascal, 2026-11-26)
+			err = h.call("todo", "add_item", data)
+		}
 	case kind == "remove":
 		item := w.Summary
 		if h.Items != nil {

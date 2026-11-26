@@ -903,6 +903,9 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 		Call: func(_ context.Context, domain, service string, data map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
+			if data["entity_id"] == "todo.shopping_list" && data["description"] != nil { // as Home Assistant's own shopping list
+				return fmt.Errorf("HTTP 400 /api/services/todo/add_item: {\"message\":\"Entity does not support setting field: description\"}")
+			}
 			d := map[string]any{"service": domain + "." + service}
 			for k, v := range data {
 				d[k] = v
