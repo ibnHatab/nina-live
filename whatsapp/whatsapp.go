@@ -94,7 +94,9 @@ type Client struct {
 	cli  *whatsmeow.Client
 	name *regexp.Regexp
 
-	linking atomic.Bool // a QR link waiting for its scan
+	linking   atomic.Bool // a QR link waiting for its scan
+	container *sqlstore.Container
+	wlog      waLog.Logger
 
 	mu     sync.Mutex
 	groups map[string]string // chat JID → its name
@@ -144,7 +146,7 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if cfg.Debug {
 		lg = waLog.Stdout("whatsmeow", "DEBUG", true)
 	}
-	c := &Client{cfg: cfg, db: db, cli: whatsmeow.NewClient(dev, lg), name: nameRe(cfg.Names),
+	c := &Client{cfg: cfg, db: db, cli: whatsmeow.NewClient(dev, lg), name: nameRe(cfg.Names), container: container, wlog: lg,
 		groups: map[string]string{}, last: map[string]time.Time{}, busy: map[string]bool{}}
 	c.cli.AddEventHandler(c.on)
 	return c, nil
@@ -249,6 +251,12 @@ func (c *Client) StartLink(ctx context.Context) error {
 	if !c.linking.CompareAndSwap(false, true) {
 		return fmt.Errorf("whatsapp: a link is already waiting for its scan")
 	}
+	// a fresh device: after an unlink the old one is deleted from the store ("invalid use of deleted
+	// device", 2026-11-26); unlinked from the start, a new one is the same as the first
+	c.cli.Disconnect()
+	cli := whatsmeow.NewClient(c.container.NewDevice(), c.wlog)
+	cli.AddEventHandler(c.on)
+	c.cli = cli
 	qr, err := c.LinkQR(context.Background()) // the pairing outlives the panel's request
 	if err != nil {
 		c.linking.Store(false)
