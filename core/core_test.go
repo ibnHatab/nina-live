@@ -915,7 +915,7 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 		}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
-	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Milk", "list": "shopping"})
+	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Milk", "calendar": "shopping"}) // the voice put the list there (pero)
 	time.Sleep(100 * time.Millisecond)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "REMOVE", "summary": "call the plumber"})
 	time.Sleep(100 * time.Millisecond)

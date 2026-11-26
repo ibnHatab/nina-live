@@ -36,8 +36,10 @@ map:
   - {verb: EVENT, atom: "cmd_event({calendar:target})", act: agenda}
   - {verb: EVENT, atom: "cmd_event(nina_cal)", act: agenda}
   - {verb: TODO, atom: "cmd_todo({list:target})", act: agenda}
+  - {verb: TODO, atom: "cmd_todo({calendar:target})", act: agenda}
   - {verb: TODO, atom: "cmd_todo(my_tasks)", act: agenda}
   - {verb: REMOVE, atom: "cmd_remove({list:target})", act: agenda}
+  - {verb: REMOVE, atom: "cmd_remove({calendar:target})", act: agenda}
   - {verb: REMOVE, atom: "cmd_remove(my_tasks)", act: agenda}
 outcomes: {done: done, refused: refused}
 handles:
