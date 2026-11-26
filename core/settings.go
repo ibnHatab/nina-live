@@ -24,6 +24,27 @@ type Settings struct {
 	Weights   []float64 `json:"weights,omitempty"` // temperament, circadian, activity
 	MinStay   string    `json:"min_stay,omitempty"`
 	Advantage float64   `json:"advantage,omitempty"`
+	// WhatsAppShow: the WhatsApp groups on her screen's card, by name (the first the card's own; nil:
+	// her config's whatsapp.show)
+	WhatsAppShow []string `json:"whatsapp_show,omitempty"`
+}
+
+// WhatsAppShows is her WhatsApp channel as her settings see it: the groups on her screen.
+type WhatsAppShows interface {
+	SetShow([]string)
+	Shown() []string
+}
+
+// UseWhatsApp gives the core her WhatsApp channel (opened after it): the saved groups go to it.
+func (k *Core) UseWhatsApp(w WhatsAppShows) {
+	k.mu.Lock()
+	k.WhatsApp = w
+	st := k.settings
+	k.mu.Unlock()
+	if st.WhatsAppShow != nil {
+		w.SetShow(st.WhatsAppShow)
+	}
+	k.settingsNow()
 }
 
 // Action is a panel action of Nina's own (false: not hers).
@@ -36,6 +57,13 @@ func (k *Core) Action(action, arg string) (bool, error) {
 		st.Name = strings.TrimSpace(arg)
 	case "persona":
 		st.Persona = strings.TrimSpace(arg)
+	case "whatsapp_show": // "Office, Pero Theia"
+		st.WhatsAppShow = nil
+		for _, g := range strings.Split(arg, ",") {
+			if g = strings.TrimSpace(g); g != "" {
+				st.WhatsAppShow = append(st.WhatsAppShow, g)
+			}
+		}
 	case "temperament":
 		var t Settings
 		if err := json.Unmarshal([]byte(arg), &t); err != nil {
@@ -102,6 +130,9 @@ func (k *Core) applySettings(st Settings) error {
 	k.settings = st
 	k.moodAt = time.Time{} // her mood again at the next beat
 	k.mu.Unlock()
+	if k.WhatsApp != nil && st.WhatsAppShow != nil {
+		k.WhatsApp.SetShow(st.WhatsAppShow)
+	}
 	if v := k.Voice(); v != nil {
 		if st.Name != "" && !strings.EqualFold(st.Name, "nina") {
 			v.Context("name", fmt.Sprintf("name: the people here call you %s now; answer to it and use it for yourself (the wake word is still \"Nina\")", st.Name))
@@ -123,6 +154,9 @@ func (k *Core) settingsNow() {
 	st := k.settings
 	k.mu.Unlock()
 	f := map[string]any{"name": st.Name, "persona": st.Persona}
+	if k.WhatsApp != nil {
+		f["whatsapp_show"] = k.WhatsApp.Shown()
+	}
 	if k.mood != nil {
 		c := k.mood.C
 		var arts []string

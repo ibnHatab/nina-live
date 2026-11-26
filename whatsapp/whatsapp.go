@@ -406,8 +406,23 @@ func (c *Client) ByName(name string) string {
 	return chat
 }
 
+// SetShow: the groups on her screen (her settings), the card told at once.
+func (c *Client) SetShow(names []string) {
+	c.mu.Lock()
+	c.cfg.Show = append([]string(nil), names...)
+	c.mu.Unlock()
+	go c.screen()
+}
+
+// Shown: the groups on her screen.
+func (c *Client) Shown() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.cfg.Show...)
+}
+
 func (c *Client) shown(chatName string) bool {
-	for _, s := range c.cfg.Show {
+	for _, s := range c.Shown() {
 		if strings.EqualFold(s, chatName) {
 			return true
 		}
@@ -418,7 +433,7 @@ func (c *Client) shown(chatName string) bool {
 // screen: the shown groups' recent messages, for her card.
 func (c *Client) screen() {
 	var chats []map[string]any
-	for _, s := range c.cfg.Show {
+	for _, s := range c.Shown() {
 		chat := c.ByName(s)
 		if chat == "" {
 			c.mu.Lock()

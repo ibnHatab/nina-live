@@ -111,6 +111,8 @@ type Core struct {
 	// Observed: the integration layer's lines now (Home Assistant's weather, lists, calendars: acasa's
 	// hass.Observer), with the world's before each task request
 	Observed func() []string
+	// WhatsApp: her WhatsApp channel (UseWhatsApp), for her settings' groups
+	WhatsApp WhatsAppShows
 }
 
 // Open builds the core: the world rebuilt from the log, the home's rules on it, the tasks.

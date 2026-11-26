@@ -371,6 +371,7 @@ func main() {
 	}()
 	if wa != nil { // her screens hear of WhatsApp now; then it connects
 		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
+		k.UseWhatsApp(wa) // her settings' groups on her screen
 		if err := wa.Connect(ctx); err != nil {
 			stdlog.Printf("whatsapp: %v", err)
 		} else {
