@@ -107,8 +107,10 @@ type Config struct {
 		Answer  string        `yaml:"answer"`   // named (direct and named in groups) | self (only the number's own chat) | none
 		Keep    []string      `yaml:"keep"`     // chats kept: self, names, all (none: all)
 	} `yaml:"whatsapp"`
-	Radar *bool        `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
-	MCP   []mcp.Server `yaml:"mcp"`   // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
+	Radar *bool `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
+	// Services: the far ends she reaches directly, part by part (services.go: the agenda on Google, the weather on Met.no)
+	Services Services     `yaml:"services"`
+	MCP      []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -224,8 +226,11 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{c: c, b: b, L: L}
 	fail := func(err error) (*App, error) { L.Close(); return nil, err }
+	if b, err = Direct(c, b); err != nil { // the config's direct services over the deployment's backends
+		return fail(err)
+	}
+	a := &App{c: c, b: b, L: L}
 
 	ents := agenda.Default
 	if len(c.Agenda) > 0 {
