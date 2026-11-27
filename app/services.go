@@ -25,11 +25,14 @@ type Services struct {
 	Google struct {
 		Token     string            `yaml:"token"`     // the credential file (chmod 600): client id, secret, refresh token
 		Calendars map[string]string `yaml:"calendars"` // the calendars the read tools show: id → name
+		// Endpoint: one base URL for every Google API (the SITL's fake: /token, /calendar, /tasks, /photos, /picker)
+		Endpoint string `yaml:"endpoint"`
 	} `yaml:"google"`
 	// Weather: Met.no for this place (lat, lon), instead of the integration's
 	Weather *struct {
 		Lat float64 `yaml:"lat"`
 		Lon float64 `yaml:"lon"`
+		URL string  `yaml:"url"` // default Met.no's (the SITL: its fake)
 	} `yaml:"weather"`
 }
 
@@ -47,6 +50,9 @@ func Direct(c Config, b Backends) (Backends, error) {
 		if g, err = google.Load(expand(s.Google.Token)); err != nil {
 			return b, err
 		}
+		if e := strings.TrimRight(s.Google.Endpoint, "/"); e != "" {
+			g.TokenURL, g.CalendarURL, g.TasksURL, g.PhotosURL, g.PickerURL = e+"/token", e+"/calendar", e+"/tasks", e+"/photos", e+"/picker"
+		}
 	}
 	if s.Photos == "google" {
 		b.Albums, b.Photos = g.AlbumTitles, g
@@ -57,7 +63,7 @@ func Direct(c Config, b Backends) (Backends, error) {
 		lines = append(lines, r.agendaLines)
 	}
 	if s.Weather != nil {
-		r.weather = &weather.Source{Lat: s.Weather.Lat, Lon: s.Weather.Lon}
+		r.weather = &weather.Source{Lat: s.Weather.Lat, Lon: s.Weather.Lon, URL: s.Weather.URL}
 		lines = append(lines, r.weatherLines)
 	}
 	if len(lines) == 0 {

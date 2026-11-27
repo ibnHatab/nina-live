@@ -33,7 +33,8 @@ func TestServicesAreSwitchesPartByPart(t *testing.T) {
 	c.Services.Weather = &struct {
 		Lat float64 `yaml:"lat"`
 		Lon float64 `yaml:"lon"`
-	}{45.75, 21.23}
+		URL string  `yaml:"url"`
+	}{45.75, 21.23, ""}
 	got, err = Direct(c, b)
 	if err != nil {
 		t.Fatal(err)
