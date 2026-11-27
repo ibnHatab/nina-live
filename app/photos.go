@@ -28,7 +28,7 @@ func pickTool(p Photos, show func(kind string, d map[string]any), note func(leve
 	return tasks.Tool{Name: "add_photos", Domain: "photos",
 		Description: "Add photos to one of Nina's albums from the person's Google Photos: shows a QR code (and its link) " +
 			"on her screen; the person scans it, picks photos and presses Done; she copies them into the album and says how many. " +
-			"Photos a friend shared as an album with Nina's Google account are picked the same way (accepted first in Google "+
+			"Photos a friend shared as an album with Nina's Google account are picked the same way (accepted first in Google " +
 			"Photos; the copies stay when the friend stops sharing). Only when the person asks to add or bring photos.",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
 			"album": map[string]any{"type": "string", "description": "the album's name (default Nina's gallery)"}}},
