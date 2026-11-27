@@ -74,11 +74,15 @@ an upload. Google ties app-created content to the app (the OAuth client) that cr
 Assistant's Web client, Nina reads the albums Home Assistant made; with a Desktop client of her own, only
 hers. Check it on the first sign-in.
 
-### Adding photos to her album
+### Adding photos to her album (her own albums: the user, 2026-11-28)
 
-The restriction is **per photo, not per album**: a photo added to her album in Google Photos' own pages
-(photos.google.com, the phone app) stays invisible to her, because she did not upload it. Two ways that work:
-- **The Picker**: from her settings, she opens a picking and shows its link (on a computer: open it; on her
-  screen: a QR code). The person chooses photos from the whole library and presses Done. Nina downloads them
-  and uploads them into her album (`CopyPicked`), and they are hers for good.
-- **An upload through Nina**: a file given to her, uploaded into her album (`Upload`).
+The restriction is **per photo, not per album**, and the "app" is the **OAuth client** (with the Google
+account): a photo is hers when it was uploaded with her client's token. So:
+- From the PC: `go run ./cmd/nina-photos upload -album "Nina's gallery" ~/Pictures/*.jpg` (the same token
+  file; `albums` and `list -album` read them back).
+- On another machine (a Pi 4, pero): the same client and the same Google account, through the same token file
+  copied over (scp, chmod 600) or a sign-in of its own with that client. That Nina then shows every photo
+  uploaded from the PC.
+- **Not** through photos.google.com or Google's apps: those are Google's client, and their photos stay
+  invisible to her, even inside her album.
+The Picker and the Ambient API are for later.
