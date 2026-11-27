@@ -15,7 +15,12 @@ import (
 	"google.golang.org/genai"
 )
 
-func init() { fmobile.SetPersona(start) }
+func init() {
+	fmobile.SetPersona(start)
+	// her own screen: her face and the conversation (acasa's ha-ui www/nina, put in the app's files as
+	// nina-ui and served by her panel at /nina/), remote: her card alone, no Home Assistant beside it
+	fmobile.SetPanel("http://127.0.0.1:8770/nina/shell.html?remote&fps=20,8&lite&scale=0.7")
+}
 
 // taskCharter: the task runner's part of the charter (after Nina's character).
 const taskCharter = `You carry out a goal Nina's voice handed you: think it through, use your tools when they help,

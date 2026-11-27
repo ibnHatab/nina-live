@@ -33,3 +33,4 @@ plugins:
   web: # her panel in the app's WebView
     enabled: true
     addr: "127.0.0.1:8770"
+    static: {"/nina/": ~/nina-ui} # her face and card (acasa ha-ui www/nina, put by the install)
