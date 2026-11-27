@@ -74,10 +74,7 @@ func radio(ctx context.Context, a map[string]any) (string, string) {
 		if err != nil {
 			return "error", "the station list did not answer: " + err.Error()
 		}
-		for _, st := range sts {
-			if st.URL == "" {
-				continue
-			}
+		if st, ok := bestStation(sts, strings.ToLower(strings.TrimSpace(genre))); ok {
 			if _, err := fmobile.Act("radio.play", map[string]any{"url": st.URL}); err != nil {
 				return "error", err.Error()
 			}
@@ -114,4 +111,41 @@ func timer(_ context.Context, a map[string]any) (string, string) {
 		return "error", err.Error()
 	}
 	return "done", fmt.Sprintf("a %s timer is running in the Clock app", (time.Duration(secs) * time.Second).String())
+}
+
+// bestStation: radio-browser orders by popularity, and a popular station may carry the genre among
+// many tags ("jazz" gave "Christmas FM Non-stop!", 2026-11-28): first a station with the genre in its
+// name, then one tagged with it exactly, then the most popular.
+func bestStation(sts []music.Station, genre string) (music.Station, bool) {
+	var tagged, any *music.Station
+	for i := range sts {
+		st := &sts[i]
+		if st.URL == "" {
+			continue
+		}
+		if any == nil {
+			any = st
+		}
+		if genre == "" {
+			break
+		}
+		if strings.Contains(strings.ToLower(st.Name), genre) {
+			return *st, true
+		}
+		if tagged == nil {
+			for _, tg := range st.Tags {
+				if strings.EqualFold(strings.TrimSpace(tg), genre) {
+					tagged = st
+					break
+				}
+			}
+		}
+	}
+	switch {
+	case tagged != nil:
+		return *tagged, true
+	case any != nil:
+		return *any, true
+	}
+	return music.Station{}, false
 }
