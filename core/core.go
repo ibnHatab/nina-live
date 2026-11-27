@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/escalate"
 	"github.com/ibnHatab/nina-live/explain"
 	"github.com/ibnHatab/nina-live/glow"
 	"github.com/ibnHatab/nina-live/habits"
@@ -57,6 +58,9 @@ type Config struct {
 	Composed bool
 	// RouteIntents: every card's intent enters through the composition's director (the redesign's channel A,
 	// s-b478fe59: home.route director); off, straight into the card as before
+	// Escalate: a goal for the task runner goes through the escalate package's rules (the redesign's step 6:
+	// its card replaces the voice's delegate); off, its card is hidden and it starts no task
+	Escalate        bool
 	RouteIntents    bool
 	Device          metishome.Device
 	Code            string // the build, for the world's checkpoints
@@ -155,6 +159,31 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		hosts = map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return k.Timers }, Outcomes: timers.Outcomes}}
 		if !slices.Contains(c.Packages, "timers") {
 			c.Packages = append(slices.Clone(c.Packages), "timers")
+		}
+	}
+	if c.Composed {
+		if _, err := os.Stat(filepath.Join(c.Root, "domains", "escalate", "domain.yaml")); err == nil {
+			eh := &escalate.Host{}
+			if c.Escalate { // its start rule starts the task; the load is the runner's
+				eh.Start = func(goal string) {
+					if k.Tasks != nil {
+						k.Tasks.Delegate(goal, "important")
+					}
+				}
+				eh.Running = func() int {
+					if k.Tasks == nil {
+						return 0
+					}
+					return k.Tasks.Running()
+				}
+			}
+			if hosts == nil {
+				hosts = map[string]metishome.HostSpec{}
+			}
+			hosts["escalate"] = metishome.HostSpec{New: func() metishome.Host { return eh }, Outcomes: escalate.Outcomes}
+			if !slices.Contains(c.Packages, "escalate") {
+				c.Packages = append(slices.Clone(c.Packages), "escalate")
+			}
 		}
 	}
 	if c.Composed || c.Agenda != nil {
@@ -905,6 +934,9 @@ func (k *Core) HomeTools() []tasks.Tool {
 	var out []tasks.Tool
 	for _, t := range k.Home.Tools() {
 		name := t.Function.Name
+		if name == "home_escalate" && !k.Cfg.Escalate { // the redesign's step 6, off: the voice keeps delegate
+			continue
+		}
 		out = append(out, tasks.Tool{Name: name, Description: t.Function.Description, Parameters: t.Function.Parameters,
 			Domain: strings.TrimPrefix(name, "home_"),
 			Call: func(ctx context.Context, args map[string]any) (string, string) {

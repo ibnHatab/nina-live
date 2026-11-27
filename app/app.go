@@ -73,6 +73,7 @@ type Config struct {
 		Transform *bool         `yaml:"transform"`
 		Steer     *bool         `yaml:"steer"`
 		FollowUp  *bool         `yaml:"follow_up"`
+		Escalate  bool          `yaml:"escalate"` // a goal through the escalate package's rules instead of delegate (the redesign's step 6)
 		Fallback  []struct {
 			Provider string `yaml:"provider"`
 			Model    string `yaml:"model"`
@@ -252,7 +253,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 		persona = string(b)
 	}
-	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed, RouteIntents: c.Home.Route == "director",
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed, RouteIntents: c.Home.Route == "director", Escalate: c.Tasks.Enabled && c.Tasks.Escalate,
 		Device: b.Device, Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
@@ -522,7 +523,7 @@ func readTools(o Reader) []tasks.Tool {
 func voiceTools(k *core.Core, reads []tasks.Tool, cards string) dialogue.Tools {
 	var del *genai.FunctionDeclaration
 	var delFn dialogue.ToolFunc
-	if k.Tasks != nil {
+	if k.Tasks != nil && !k.Cfg.Escalate { // with tasks.escalate, the escalate card instead
 		del = &genai.FunctionDeclaration{Name: "delegate",
 			Description: "Hand an open-ended goal to Nina's task runner: something that takes several steps, " +
 				"checking things or doing them in order, or remembering what was said before. It answers at once; " +

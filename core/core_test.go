@@ -70,6 +70,8 @@ func (d device) Do(kind, role, op string, value any) bool {
 }
 
 // rigAgenda: the agenda host of the next rig (nil: the default, which writes nothing)
+var rigEscalate bool
+
 var rigAgenda *agenda.Host
 
 // rigMusic, rigLog: the music host and the log file of the next rig (zero: the defaults)
@@ -117,6 +119,7 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	// NINA_TEST_ROUTE=1: every card's intent through the director (the redesign's step 4): the whole suite again
 	cfg := Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
 		RouteIntents: os.Getenv("NINA_TEST_ROUTE") != "",
+		Escalate:     rigEscalate,
 		Code:         "test", CheckpointEvery: 5,
 		Tasks: &tasks.Config{ModelValue: r.faux.GetModel(), KeyFile: key, System: "test", Mech: mech, MaxTurns: 8,
 			Timeout: 30 * time.Second, Tools: extra}}
@@ -981,5 +984,54 @@ func TestTheDirectorSeesEveryCall(t *testing.T) {
 	}, "tick")
 	if strings.Join(relayed, " ") != "scenes timers" || len(bypassed) != 0 {
 		t.Fatalf("relayed %v, bypassed %v", relayed, bypassed)
+	}
+}
+
+// TestAGoalGoesThroughTheRules (the redesign's step 6): with Escalate, a goal is the escalate card's: the
+// rules start a task when the load is free, and the voice's delegate is gone.
+func TestAGoalGoesThroughTheRules(t *testing.T) {
+	rigEscalate = true
+	defer func() { rigEscalate = false }()
+	r := newRig(t, tasks.All)
+	names := map[string]bool{}
+	for _, tl := range r.k.HomeTools() {
+		names[tl.Name] = true
+	}
+	if !names["home_escalate"] {
+		t.Fatalf("no escalate card: %v", names)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if o := r.k.Call(ctx, "home_escalate", map[string]any{"intent": "ESCALATE", "goal": "check the fans"}); o.Status != "done" {
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+			if e.Stream == "tick" || e.Stream == "reasoning" || e.Stream == "surprise" {
+				t.Logf("%s %s %s", e.Stream, e.Kind, e.Data)
+			}
+			return nil
+		})
+		t.Fatalf("the goal: %+v", o)
+	}
+	created := 0
+	for i := 0; i < 50 && created == 0; i++ {
+		time.Sleep(100 * time.Millisecond)
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+			if e.Kind == "created" {
+				created++
+			}
+			return nil
+		}, "task")
+	}
+	if created != 1 {
+		t.Fatalf("tasks created: %d", created)
+	}
+}
+
+// TestNoEscalateCardWhenItIsOff: without Escalate the voice keeps delegate and sees no escalate card.
+func TestNoEscalateCardWhenItIsOff(t *testing.T) {
+	r := newRig(t, tasks.All)
+	for _, tl := range r.k.HomeTools() {
+		if tl.Name == "home_escalate" {
+			t.Fatal("the escalate card with Escalate off")
+		}
 	}
 }
