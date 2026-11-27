@@ -101,6 +101,8 @@ github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083 h1:0JDcvP4
 github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083/go.mod h1:YdrZ05xnooeP54y7m+/UvI23O1Td46PjWkLJu1VLObM=
 github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d h1:3rQENFasm4TG2HQqB9E0DWreKZpKMljolVNSz90t/OQ=
 github.com/metis-lang-dev/metis-agent/go v0.0.0-20261124103750-bf4ba976bc3d/go.mod h1:y/duAVygzqdTyF5u/Ia5meCTSEvPcAENfzHh2uh0GeM=
+github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127195959-85f43d28ef69 h1:BFchoM1seC4nWsnnNksD0j12BbUo8TjcplviTJwypGc=
+github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127195959-85f43d28ef69/go.mod h1:y/duAVygzqdTyF5u/Ia5meCTSEvPcAENfzHh2uh0GeM=
 github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f h1:gMPbc7A8CY9B7AjnkomspHqcHgwJeb77IIvR5IB+MYo=
 github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f/go.mod h1:CFKunGmiQQXrPqZeI/z7Fl+APW8fImg8ul/TU6al9+Q=
 github.com/ncruces/go-strftime v1.1.0 h1:vtPmPWMkb539RGV9WpWT9EwJGvrOCKvMNI4obWL47Hk=

@@ -51,6 +51,7 @@ type Config struct {
 		CheckpointEvery int           `yaml:"checkpoint_every"`
 		CallTimeout     time.Duration `yaml:"call_timeout"`
 		Composed        bool          `yaml:"composed"`
+		Route           string        `yaml:"route"` // director: every card's intent through the director (the redesign's step 4); "" straight to the card
 	} `yaml:"home"`
 	Dialogue string `yaml:"dialogue"`
 	// Persona is Nina's character, put before the voice's protocol and the task runner's charter
@@ -249,7 +250,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 		persona = string(b)
 	}
-	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed, RouteIntents: c.Home.Route == "director",
 		Device: b.Device, Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {

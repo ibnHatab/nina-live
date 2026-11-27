@@ -6,6 +6,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -113,8 +114,10 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	ctx, stop := context.WithCancel(context.Background())
 	r.stop = stop
 	t.Cleanup(stop)
+	// NINA_TEST_ROUTE=1: every card's intent through the director (the redesign's step 4): the whole suite again
 	cfg := Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
-		Code: "test", CheckpointEvery: 5,
+		RouteIntents: os.Getenv("NINA_TEST_ROUTE") != "",
+		Code:         "test", CheckpointEvery: 5,
 		Tasks: &tasks.Config{ModelValue: r.faux.GetModel(), KeyFile: key, System: "test", Mech: mech, MaxTurns: 8,
 			Timeout: 30 * time.Second, Tools: extra}}
 	if rigAgenda != nil {
@@ -954,3 +957,29 @@ type listed struct {
 }
 
 func (l listed) Items(ctx context.Context, id string) ([]string, error) { return l.items(ctx, id) }
+
+// TestTheDirectorSeesEveryCall (NINA_TEST_ROUTE=1, the redesign's step 4): a card's call reaches the card
+// through the director, its relay in the log (stream tick), none bypassing it.
+func TestTheDirectorSeesEveryCall(t *testing.T) {
+	if os.Getenv("NINA_TEST_ROUTE") == "" {
+		t.Skip("NINA_TEST_ROUTE=1: the intents through the director")
+	}
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "NIGHT"})
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "SET", "minutes": 5.0})
+	var relayed, bypassed []string
+	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+		var f map[string]any
+		json.Unmarshal(e.Data, &f)
+		switch {
+		case e.Kind == "tick-relay" && f["what"] == "intent":
+			relayed = append(relayed, f["domain"].(string))
+		case e.Kind == "tick-intent-bypass":
+			bypassed = append(bypassed, f["domain"].(string))
+		}
+		return nil
+	}, "tick")
+	if strings.Join(relayed, " ") != "scenes timers" || len(bypassed) != 0 {
+		t.Fatalf("relayed %v, bypassed %v", relayed, bypassed)
+	}
+}

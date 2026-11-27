@@ -50,11 +50,14 @@ type Voice interface {
 }
 
 type Config struct {
-	Log             *nlog.Log
-	Root            string // the catalog (nina-live/catalog)
-	Metisc          string
-	Packages        []string // default metishome.Packages
-	Composed        bool
+	Log      *nlog.Log
+	Root     string // the catalog (nina-live/catalog)
+	Metisc   string
+	Packages []string // default metishome.Packages
+	Composed bool
+	// RouteIntents: every card's intent enters through the composition's director (the redesign's channel A,
+	// s-b478fe59: home.route director); off, straight into the card as before
+	RouteIntents    bool
 	Device          metishome.Device
 	Code            string // the build, for the world's checkpoints
 	CheckpointEvery int
@@ -276,7 +279,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	}
 	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
-		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, Records: c.Records, Hosts: hosts,
+		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, RouteIntents: c.RouteIntents, Records: c.Records, Hosts: hosts,
 		OnSurprise:  func(domain string, r map[string]any) { k.surprise(domain, r) },
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
@@ -782,7 +785,7 @@ func (k *Core) reasoning(r metishome.Reasoning) {
 
 func (k *Core) tick(kind string, f map[string]any) {
 	switch kind {
-	case "tick-director", "tick-relay", "tick-card", "tick-said":
+	case "tick-director", "tick-relay", "tick-card", "tick-said", "tick-intent-bypass":
 		k.Log.Append(k.Cfg.Now(), "tick", kind, "", "", f, 1)
 	}
 	if kind == "tick-relay" && f["what"] == "goal" && k.Tasks != nil {
