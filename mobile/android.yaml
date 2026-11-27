@@ -1,0 +1,35 @@
+# fsttm-live's config for Nina in the Android app (nina-live mobile/; copied into the app's files as
+# nina/dialogue.yaml by scripts/android-build.sh --install). HOME is the app's files directory, so
+# ~/.config/fsttm/gemini.key is there (put by the install, never in this file).
+key: ~/.config/fsttm/gemini.key
+charter: ~/nina/charter.md # nina.md then voice.md, written by the persona at start
+models:
+  ears: gemini-3.5-transcribe-live
+  mind: gemini-3.1-flash-live-preview
+  vocab: [Nina]
+audio:
+  device: none # the app's mic is the dialogue's remote microphone (fsttm-live pkg/mobile), on while she is in front
+  channels: 1
+  speech: 0
+  ref: -1
+  vad_mode: 3
+  hang: 700ms
+  min_level: -60
+  max_utterance: 25s
+dialog:
+  follow_up: 0s # in front, all she hears while awake is for her
+  awake_for: 12h # no wake word: she stays awake while in front (the app's mic is off otherwise)
+  start_asleep: false # no wake word: in front, she listens
+  note_gap: 2s
+  wake:
+    mode: cloud
+prefs:
+  mic: true
+  voice: true
+  voice_name: Zephyr
+  narration: important
+  bubble: 1
+plugins:
+  web: # her panel in the app's WebView
+    enabled: true
+    addr: "127.0.0.1:8770"

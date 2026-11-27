@@ -34,9 +34,17 @@ fi
 MODULE_DIR="$here" "$REPO_ROOT/fsttm-live/android/build.sh" github.com/ibnHatab/nina-live/mobile
 
 if [ "${1:-}" = --install ]; then
+  # into the app's private files (it is debuggable: run-as), through adb's /data/local/tmp (shell's
+  # only), removed after: her config and character, the Gemini key, the catalog
   apk="$REPO_ROOT/fsttm-live/android/out/fsttm-live.apk"
   adb install -r "$apk"
-  files=/sdcard/Android/data/live.fsttm.app/files
-  adb shell mkdir -p "$files"
-  adb push "$here/catalog" "$files/" > /dev/null && echo "catalog → $files/catalog"
+  key="${GEMINI_KEY:-$HOME/.config/fsttm/gemini.key}"
+  st=/data/local/tmp/nina-stage
+  adb shell "rm -rf $st && mkdir -p $st"
+  adb push "$here/mobile/android.yaml" "$st/dialogue.yaml" > /dev/null
+  adb push "$here/prompts/nina.md" "$here/prompts/voice.md" "$st/" > /dev/null
+  adb push "$key" "$st/gemini.key" > /dev/null
+  adb push "$here/catalog" "$st/" > /dev/null
+  adb shell "chmod -R a+rX $st && run-as live.fsttm.app sh -c 'mkdir -p files/nina files/.config/fsttm && cp $st/dialogue.yaml $st/nina.md $st/voice.md files/nina/ && cp $st/gemini.key files/.config/fsttm/ && chmod 600 files/.config/fsttm/gemini.key && rm -rf files/catalog && cp -r $st/catalog files/' ; rm -rf $st"
+  adb shell run-as live.fsttm.app ls -R files/nina files/.config | head -12
 fi
