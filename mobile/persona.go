@@ -56,7 +56,7 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 		fbs = append(fbs, tasks.Fallback{Provider: "openrouter", Model: "deepseek/deepseek-v4.1-flash", KeyFile: okey})
 	}
 	runner, err := tasks.New(tasks.Config{Provider: "google", Model: "gemini-3.8-flash", KeyFile: gkey, Fallbacks: fbs,
-		MaxTurns: 10, Timeout: 5 * time.Minute,
+		MaxTurns: 10, Timeout: 5 * time.Minute, Tools: deviceTools(),
 		System: string(char) + "\n\n# The task runner\n\n" + taskCharter,
 		Note: func(level, text string) {
 			fmt.Fprintf(os.Stderr, "nina: note %s: %s\n", level, text)
@@ -100,6 +100,16 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 			}()
 			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}}}
+	for _, dt := range deviceTools() { // the radio, alarms and timers, for the voice too
+		dt := dt
+		tools.Decls[0].FunctionDeclarations = append(tools.Decls[0].FunctionDeclarations,
+			&genai.FunctionDeclaration{Name: dt.Name, Description: dt.Description, ParametersJsonSchema: dt.Parameters})
+		tools.Funcs[dt.Name] = func(ctx context.Context, args map[string]any) map[string]any {
+			status, text := dt.Call(ctx, args)
+			fmt.Fprintf(os.Stderr, "nina: %s %v → %s: %s\n", dt.Name, args, status, text)
+			return map[string]any{"status": status, "text": text}
+		}
+	}
 	d, err = dialogue.New(ctx, cfg, dialogue.NewEvents(io.Discard), tools)
 	if err != nil {
 		return nil, err
