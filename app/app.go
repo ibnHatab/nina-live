@@ -1,30 +1,27 @@
-// nina: Nina in one process: her voice (fsttm-live's pkg/dialogue), and the core (core/: her log,
-// the world rebuilt from it, the home's rules composed under the director, her System 2 on pi),
-// with Home Assistant as her tool (acasa's hass).
+// Package app is Nina in one process, as a library: her voice (fsttm-live's pkg/dialogue) and the core
+// (core/: her log, the world rebuilt from it, the home's rules composed under the director, her System 2
+// on pi), assembled from her config and the backends a deployment gives her (Backends: acasa's Home
+// Assistant at home, Google's APIs and the tablet's own player elsewhere). The persona depends on no
+// deployment; a deployment's cmd/nina builds the backends and calls Run (the redesign, s-b478fe59).
 //
-//	nina -config ~/repo/acasa/live/nina.yaml
-//
-// Gemini Live (System 1) has the home's five cards and, with tasks on, delegate(goal): an
-// open-ended goal becomes a pi task (System 2) whose result she says as a NOTE.
-package main
+// Gemini Live (System 1) has the home's cards and, with tasks on, delegate(goal): an open-ended goal
+// becomes a pi task (System 2) whose result she says as a NOTE.
+package app
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
+	"fmt"
 	"io"
 	stdlog "log"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
-	"github.com/ibnHatab/acasa/hass"
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
 	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
@@ -37,12 +34,13 @@ import (
 	"github.com/ibnHatab/nina-live/websearch"
 	"github.com/ibnHatab/nina-live/whatsapp"
 	"github.com/ibnHatab/nina-live/youtube"
+	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	"google.golang.org/genai"
 	"gopkg.in/yaml.v3"
 )
 
-// Config is nina.yaml.
+// Config is nina.yaml (the persona's part: a deployment's own sections beside it, as acasa's hass).
 type Config struct {
 	Log  string `yaml:"log"`
 	Home struct {
@@ -54,18 +52,14 @@ type Config struct {
 		CallTimeout     time.Duration `yaml:"call_timeout"`
 		Composed        bool          `yaml:"composed"`
 	} `yaml:"home"`
-	Hass struct {
-		URL   string `yaml:"url"`
-		Token string `yaml:"token"`
-	} `yaml:"hass"`
 	Dialogue string `yaml:"dialogue"`
 	// Persona is Nina's character, put before the voice's protocol and the task runner's charter
 	// (prompts/nina.md); Voice, the voice's protocol (prompts/voice.md): together, the dialogue's charter
 	Persona string            `yaml:"persona"`
 	Voice   string            `yaml:"voice"`
 	Levels  map[string]string `yaml:"levels"`
-	// Agenda: a target handle (catalog/domains/agenda) → its Home Assistant entity (default
-	// agenda.Default: Nina's Google calendar, Google Tasks' list, the local test pair)
+	// Agenda: a target handle (catalog/domains/agenda) → its id in the agenda's backend (default
+	// agenda.Default: Home Assistant's entities for Nina's Google calendar, Google Tasks' list, the local pair)
 	Agenda map[string]string `yaml:"agenda"`
 	Tasks  struct {
 		Enabled   bool          `yaml:"enabled"`
@@ -119,6 +113,9 @@ type Config struct {
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 
+// Expand is a path with ~/ at the home directory.
+func Expand(p string) string { return expand(p) }
+
 func expand(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		h, _ := os.UserHomeDir()
@@ -155,83 +152,105 @@ const taskCharter = `You are Nina's task runner: a goal the person gave Nina, ca
 - If something you did has not been confirmed yet, say so plainly.
 - Say only what the tools and HOME tell you: what you did and how things are now.`
 
-func main() {
-	cfgPath := flag.String("config", "~/.config/nina/nina.yaml", "nina.yaml")
-	flag.Parse()
-	var c Config
-	b, err := os.ReadFile(expand(*cfgPath))
-	if err != nil {
-		stdlog.Fatal(err)
-	}
-	if err := yaml.Unmarshal(b, &c); err != nil {
-		stdlog.Fatalf("%s: %v", *cfgPath, err)
-	}
-	root := expand(c.Home.Root)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+// Backends are the far ends Nina's hosts and tools reach; nil leaves that part out.
+type Backends struct {
+	Device   metishome.Device                                   // the home's devices (lights, air, media): the world's commands
+	Agenda   agenda.Backend                                     // her calendars and lists
+	Music    music.Backend                                      // the music's player
+	Glow     func(ctx context.Context, commands []string) error // the bedroom light's mood, said to the Echo
+	Publish  func(state string, attrs map[string]any)           // her persona where the home's screens see it
+	Reader   Reader                                             // the lists, calendars and weather to read
+	Observed func() []string                                    // the integrations' lines now (her silent context)
+	// Watch runs until ctx ends: the house's states folded into her world (apply), the integrations'
+	// lines as they change (line)
+	Watch func(ctx context.Context, apply func(semhome.Event) (semhome.Out, error), line func(key, text string))
+	// Presence runs until ctx ends: the radar's presence and distance (her voice's aim)
+	Presence func(ctx context.Context, set func(core.Presence))
+	Albums   func(ctx context.Context) ([]string, error) // the photo albums her screen can show
+}
 
+// Named is a list, a calendar or a weather source by its id and its name.
+type Named struct{ ID, Name string }
+
+// Reader reads what the read tools show (reading only: what changes them is a Metis package's command).
+type Reader interface {
+	Lists() []Named
+	Items(ctx context.Context, id, status string) ([]string, error)
+	Calendars() []Named
+	Events(ctx context.Context, id string, window time.Duration, n int) ([]string, error)
+	Weathers() []Named
+	Forecast(ctx context.Context, id, kind string, n int) (string, error)
+}
+
+// App is Nina assembled: New opens her, Start sets her running, Dialogue is her voice.
+type App struct {
+	c     Config
+	b     Backends
+	L     *nlog.Log
+	K     *core.Core
+	D     *dialogue.Dialogue
+	wa    *whatsapp.Client
+	waLog func(string, map[string]any)
+}
+
+// LoadConfig reads nina.yaml into the persona's Config (yaml: its own sections; a deployment reads its own).
+func LoadConfig(b []byte, c *Config) error { return yaml.Unmarshal(b, c) }
+
+// Run is New, Start and her dialogue until ctx ends.
+func Run(ctx context.Context, c Config, b Backends) error {
+	a, err := New(ctx, c, b)
+	if err != nil {
+		return err
+	}
+	defer a.L.Close()
+	if err := a.Start(ctx); err != nil {
+		return err
+	}
+	a.L.Append(now(), "sys", "start", "", "", map[string]any{"code": code(), "replay": a.K.Report}, 1)
+	if err := a.D.Run(ctx); err != nil {
+		stdlog.Printf("the dialogue: %v", err)
+	}
+	a.L.Append(now(), "sys", "stop", "", "", nil, 1)
+	return nil
+}
+
+// New opens her log, her core (the world rebuilt from the log), her tools and her dialogue.
+func New(ctx context.Context, c Config, b Backends) (*App, error) {
+	root := expand(c.Home.Root)
 	if err := os.MkdirAll(filepath.Dir(expand(c.Log)), 0o755); err != nil {
-		stdlog.Fatal(err)
+		return nil, err
 	}
 	L, err := nlog.Open(expand(c.Log))
 	if err != nil {
-		stdlog.Fatal(err)
+		return nil, err
 	}
-	defer L.Close()
-	m, err := semhome.LoadMap(filepath.Join(root, "world", "home.map.json"))
-	if err != nil {
-		stdlog.Fatal(err)
-	}
-	ha, err := hass.New(c.Hass.URL, c.Hass.Token)
-	if err != nil {
-		stdlog.Fatal(err)
-	}
+	a := &App{c: c, b: b, L: L}
+	fail := func(err error) (*App, error) { L.Close(); return nil, err }
 
 	ents := agenda.Default
 	if len(c.Agenda) > 0 {
 		ents = c.Agenda
 	}
-	ag := &agenda.Host{Entities: ents, Call: func(ctx context.Context, domain, service string, data map[string]any) error {
-		_, err := ha.Service(ctx, domain, service, data, false)
-		return err
-	}, Items: func(ctx context.Context, entity string) ([]string, error) {
-		r, err := ha.Service(ctx, "todo", "get_items", map[string]any{"entity_id": entity}, true)
-		if err != nil {
-			return nil, err
-		}
-		var l struct {
-			Items []struct{ Summary string } `json:"items"`
-		}
-		if err := json.Unmarshal(r[entity], &l); err != nil {
-			return nil, err
-		}
-		var out []string
-		for _, it := range l.Items {
-			out = append(out, it.Summary)
-		}
-		return out, nil
-	}}
-	mu := &music.Host{Call: func(ctx context.Context, domain, service string, data map[string]any) error {
-		_, err := ha.Service(ctx, domain, service, data, false)
-		return err
-	}}
-	// stations in the place's languages first (2026-11-26)
-	mu.Languages = c.Music.Languages
-	gl := &glow.Host{Say: func(ctx context.Context, commands []string) error { // script.alexa_quiet: the Echo silenced
-		_, err := ha.Service(ctx, "script", "alexa_quiet", map[string]any{"commands": commands}, false)
-		return err
-	}}
+	var ag *agenda.Host
+	if b.Agenda != nil {
+		ag = &agenda.Host{Entities: ents, Backend: b.Agenda}
+	}
+	var mu *music.Host
+	if b.Music != nil {
+		mu = &music.Host{Backend: b.Music}
+		// stations in the place's languages first (2026-11-26)
+		mu.Languages = c.Music.Languages
+	}
+	var gl *glow.Host
+	if b.Glow != nil {
+		gl = &glow.Host{Say: b.Glow} // script.alexa_quiet at home: the Echo silenced
+	}
 	persona := ""
 	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 		persona = string(b)
 	}
-	publish := func(state string, attrs map[string]any) { // Nina's persona, for the dashboard (sensor.nina_persona)
-		if _, err := ha.Call("POST", "/api/states/sensor.nina_persona", map[string]any{"state": state, "attributes": attrs}); err != nil {
-			stdlog.Printf("[persona] %v", err)
-		}
-	}
-	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
-		Device: hass.NewDevice(ha, m), Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed,
+		Device: b.Device, Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
 		charter := taskCharter
@@ -254,28 +273,28 @@ func main() {
 	}
 	t0 := time.Now()
 	k, err := core.Open(ctx, cc)
-	if err == nil {
-		strainCore.Store(k)
-	}
 	if err != nil {
-		stdlog.Fatal(err)
+		return fail(err)
 	}
-	obs := hass.NewObserver(ha) // Home Assistant's standard classes: weather, lists, calendars, timers, people, players
-	k.Observed = obs.Lines
-	obs.OnLine = k.Observe
-	reads := readTools(obs)
+	strainCore.Store(k)
+	a.K = k
+	k.Observed = b.Observed // the integrations' lines (at home: Home Assistant's weather, lists, calendars, timers, people, players)
+	var reads []tasks.Tool
+	if b.Reader != nil {
+		reads = readTools(b.Reader)
+	}
 	if c.Search.Enabled { // web_search: Google Search grounding through Gemini Flash, the voice's and the tasks'
 		key := ""
 		if len(c.Search.Models) > 0 {
 			k, err := tasks.Key("google", expand(c.Search.Key))
 			if err != nil {
-				stdlog.Fatalf("search: %v", err)
+				return fail(fmt.Errorf("search: %w", err))
 			}
 			key = k
 		}
 		ws, err := websearch.New(ctx, c.Search.SearXNG, key, c.Search.Models, c.Search.Daily, L, now)
 		if err != nil {
-			stdlog.Fatalf("search: %v", err)
+			return fail(fmt.Errorf("search: %w", err))
 		}
 		ws.Strain = func(err error) { strainOf("search", err) }
 		reads = append(reads, ws.Tool())
@@ -285,20 +304,18 @@ func main() {
 	if err != nil {
 		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
 	}
-	reads = append(reads, screenTool(yt, func(ctx context.Context) ([]string, error) { return googleAlbums(ctx, ha) }, func(d map[string]any) {
+	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
 			stageLog("stage", d)
 		}
 	}))
-	var wa *whatsapp.Client // her WhatsApp channel: opened here (its read tool), connected once her voice is
-	var waLog func(string, map[string]any)
 	if c.WhatsApp.Enabled && k.Tasks != nil {
 		w := c.WhatsApp
 		wc, err := whatsapp.Open(ctx, whatsapp.Config{Store: expand(firstOf(w.Store, "~/.local/share/nina/whatsapp.db")), Names: w.Names,
 			Show: w.Show, MinGap: w.MinGap, PerHour: w.PerHour, Answer: waAnswer(k), Mode: w.Answer, Keep: w.Keep,
 			Log: func(kind string, d map[string]any) {
-				if waLog != nil {
-					waLog(kind, d)
+				if a.waLog != nil {
+					a.waLog(kind, d)
 				}
 			},
 			Changed: k.WhatsAppChanged,
@@ -306,8 +323,8 @@ func main() {
 		if err != nil {
 			stdlog.Printf("whatsapp: %v", err)
 		} else {
-			wa = wc // linked or not: her screens can link it (the WhatsApp card)
-			reads = append(reads, waReadTool(wa))
+			a.wa = wc // linked or not: her screens can link it (the WhatsApp card)
+			reads = append(reads, waReadTool(wc))
 			if !wc.LoggedIn() {
 				stdlog.Printf("whatsapp: not linked yet (her WhatsApp card: Link a device; or nina-whatsapp link-qr)")
 			}
@@ -333,7 +350,7 @@ func main() {
 	// her voice: the dialogue, its preferences from the log, the core's tools (and delegate)
 	dcfg, err := dialogue.LoadConfig(expand(c.Dialogue))
 	if err != nil {
-		stdlog.Fatal(err)
+		return fail(err)
 	}
 	if c.Persona != "" && c.Voice != "" { // the charter: Nina's character, then the voice's protocol
 		p, err1 := os.ReadFile(expand(c.Persona))
@@ -354,8 +371,9 @@ func main() {
 	}, "prefs")
 	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k, reads))
 	if err != nil {
-		stdlog.Fatal(err)
+		return fail(err)
 	}
+	a.D = d
 	d.SavePrefs = func(p dialogue.Prefs) error {
 		_, err := L.Append(now(), "prefs", "set", "", "", p, 1)
 		return err
@@ -368,48 +386,20 @@ func main() {
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
 	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
-	go func() {           // the radar (sensor.nina_viewer, the Pi's LD2410C): presence and distance → core.Presence
-		if c.Radar != nil && !*c.Radar {
-			return // its speakers are not where the radar is (radar: false)
-		}
-		last, stale := "", false
-		for range time.Tick(2 * time.Second) {
-			raw, err := ha.Call("GET", "/api/states/sensor.nina_viewer", nil)
-			if err != nil {
-				continue // no radar yet
-			}
-			var st struct {
-				State      string         `json:"state"`
-				Updated    string         `json:"last_updated"`
-				Attributes map[string]any `json:"attributes"`
-			}
-			if json.Unmarshal(raw, &st) != nil {
-				continue
-			}
-			// a reading that has not changed in 10 min is a radar gone (its Pi off): nobody, not a person
-			// held at its last distance (2026-11-26: 0.54 m from the day before capped her bubble)
-			if t, err := time.Parse(time.RFC3339Nano, st.Updated); err == nil && time.Since(t) > 10*time.Minute {
-				if !stale {
-					stale = true
-					k.Presence(core.Presence{})
-				}
-				continue
-			}
-			if st.Updated == last {
-				continue
-			}
-			last, stale = st.Updated, false
-			p := core.Presence{Present: st.State == "present"}
-			p.Distance, _ = st.Attributes["distance"].(float64)
-			p.Near, _ = st.Attributes["near"].(bool)
-			p.InReach, _ = st.Attributes["in_reach"].(bool)
-			p.Trend, _ = st.Attributes["trend"].(string)
-			k.Presence(p)
-		}
-	}()
 	stageLog = func(kind string, data map[string]any) { d.Log(kind, data) }
+	return a, nil
+}
+
+// Start sets her running: her WhatsApp, the radar, the dialogue's log and plugins, the house's states into
+// her world, her beat.
+func (a *App) Start(ctx context.Context) error {
+	c, b, k, d, L := a.c, a.b, a.K, a.D, a.L
+	if b.Presence != nil && (c.Radar == nil || *c.Radar) { // the radar's distance aims her voice (radar: false where her speakers are not where it is)
+		go b.Presence(ctx, k.Presence)
+	}
+	wa := a.wa
 	if wa != nil { // her screens hear of WhatsApp now; then it connects
-		waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
+		a.waLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 		k.UseWhatsApp(wa)  // her settings' groups on her screen
 		if wa.LoggedIn() { // connected by its link otherwise (StartLink, from her screen)
 			// in the background, again after a failure (a DNS hiccup at the start had left her offline, and
@@ -435,26 +425,19 @@ func main() {
 	}
 	go logDialogue(ctx, d, L, k.Floor)
 	if err := d.StartPlugins(ctx); err != nil {
-		stdlog.Fatal(err)
+		return err
 	}
-	go func() {
-		if err := ha.Follow(ctx, obs.Feed(k.World.Apply), now); err != nil {
-			stdlog.Printf("[hass] %v: the world gets no readings", err)
-		}
-	}()
+	if b.Watch != nil {
+		go b.Watch(ctx, k.World.Apply, k.Observe)
+	}
 	go k.Run(ctx, c.Home.Beat)
-	go obs.Run(ctx, 10*time.Minute)
-	L.Append(now(), "sys", "start", "", "", map[string]any{"code": code(), "replay": k.Report}, 1)
-	if err := d.Run(ctx); err != nil {
-		stdlog.Printf("the dialogue: %v", err)
-	}
-	L.Append(now(), "sys", "stop", "", "", nil, 1)
+	return nil
 }
 
-// readTools read Home Assistant's classes for the voice and the tasks: every to-do list, every
-// calendar, the weather (whatever integration is behind each). Reading only: what changes them is
-// a Metis domain's command, like the home's.
-func readTools(o *hass.Observer) []tasks.Tool {
+// readTools read the lists, the calendars and the weather for the voice and the tasks (whatever
+// keeps each: Home Assistant's integrations, Google's APIs). Reading only: what changes them is a
+// Metis package's command, like the home's.
+func readTools(o Reader) []tasks.Tool {
 	obj := func(props map[string]any) map[string]any {
 		return map[string]any{"type": "object", "properties": props}
 	}
@@ -464,12 +447,12 @@ func readTools(o *hass.Observer) []tasks.Tool {
 			Call: func(ctx context.Context, a map[string]any) (string, string) {
 				want, _ := a["list"].(string)
 				var out []string
-				for _, st := range o.Entities("todo") {
-					n, _ := st.Attributes["friendly_name"].(string)
-					if want != "" && !strings.Contains(strings.ToLower(n+" "+st.EntityID), strings.ToLower(want)) {
+				for _, l := range o.Lists() {
+					n := l.Name
+					if want != "" && !strings.Contains(strings.ToLower(n+" "+l.ID), strings.ToLower(want)) {
 						continue
 					}
-					items, err := o.Items(ctx, st.EntityID, "needs_action")
+					items, err := o.Items(ctx, l.ID, "needs_action")
 					if err != nil {
 						return "error", err.Error()
 					}
@@ -492,12 +475,12 @@ func readTools(o *hass.Observer) []tasks.Tool {
 					days = 7
 				}
 				var out []string
-				for _, st := range o.Entities("calendar") {
-					evs, err := o.Events(ctx, st.EntityID, time.Duration(days*24)*time.Hour, 20)
+				for _, cal := range o.Calendars() {
+					evs, err := o.Events(ctx, cal.ID, time.Duration(days*24)*time.Hour, 20)
 					if err != nil {
 						return "error", err.Error()
 					}
-					n, _ := st.Attributes["friendly_name"].(string)
+					n := cal.Name
 					if len(evs) == 0 {
 						out = append(out, n+": nothing")
 					} else {
@@ -505,7 +488,7 @@ func readTools(o *hass.Observer) []tasks.Tool {
 					}
 				}
 				if len(out) == 0 {
-					return "done", "no calendar is connected to Home Assistant yet"
+					return "done", "no calendar is connected yet"
 				}
 				return "done", strings.Join(out, "\n")
 			}},
@@ -517,8 +500,8 @@ func readTools(o *hass.Observer) []tasks.Tool {
 					kind, n = "hourly", 12
 				}
 				var out []string
-				for _, st := range o.Entities("weather") {
-					f, err := o.Forecast(ctx, st.EntityID, kind, n)
+				for _, w := range o.Weathers() {
+					f, err := o.Forecast(ctx, w.ID, kind, n)
 					if err != nil {
 						return "error", err.Error()
 					}

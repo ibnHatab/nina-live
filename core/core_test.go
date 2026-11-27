@@ -444,7 +444,7 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 	var mu sync.Mutex
 	var calls []map[string]any
 	fail := false
-	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: agenda.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if fail {
@@ -456,7 +456,7 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 		}
 		calls = append(calls, d)
 		return nil
-	}}
+	}}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Dentist", "due": "2026-11-25T10:00:00", "minutes": 60}) // the time in due (pero's voice)
@@ -501,7 +501,7 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 	var played []string
 	var vols []float64
 	fake := &music.Host{KeepAfter: 700 * time.Millisecond, SkipWithin: 300 * time.Millisecond,
-		Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
 			switch service {
@@ -511,7 +511,7 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 				vols = append(vols, data["volume_level"].(float64))
 			}
 			return nil
-		},
+		}},
 		Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 			if tag == "" {
 				tag = "words-" + strings.ReplaceAll(words, " ", "-")
@@ -600,17 +600,17 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 func TestAgainAndTheUsual(t *testing.T) {
 	var mu sync.Mutex
 	var played []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if service == "play_media" {
 			played = append(played, data["media_content_id"].(string))
 		}
 		return nil
-	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+	}}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
 	}}
-	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(context.Context, string, string, map[string]any) error { return nil }}
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: agenda.HA{Call: func(context.Context, string, string, map[string]any) error { return nil }}}
 	defer func() { rigMusic, rigAgenda = nil, nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_habits", map[string]any{"intent": "USUAL"})
@@ -650,14 +650,14 @@ func TestAgainAndTheUsual(t *testing.T) {
 func TestTheHomesCharacterChoosesFirst(t *testing.T) {
 	var mu sync.Mutex
 	var played []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if service == "play_media" {
 			played = append(played, data["media_content_id"].(string))
 		}
 		return nil
-	}}
+	}}}
 	defer func() { rigMusic = nil }()
 	r := newRig(t, tasks.All)
 	for _, g := range []string{"news", "lofi", "jazz", "ambient", "rock"} {
@@ -747,7 +747,7 @@ func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
 	var played []string
 	var vols []float64
 	var said []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		switch service {
@@ -757,7 +757,7 @@ func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
 			vols = append(vols, data["volume_level"].(float64))
 		}
 		return nil
-	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+	}}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
 	}}
 	rigGlow = &glow.Host{FadeStep: 200 * time.Millisecond, Say: func(_ context.Context, cmds []string) error {
@@ -902,7 +902,7 @@ func TestAnAPIErrorIsHerStrain(t *testing.T) {
 func TestNinaTakesItemsOffLists(t *testing.T) {
 	var mu sync.Mutex
 	var calls []map[string]any
-	rigAgenda = &agenda.Host{Entities: agenda.Default,
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: listed{agenda.HA{
 		Call: func(_ context.Context, domain, service string, data map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -915,10 +915,9 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 			}
 			calls = append(calls, d)
 			return nil
-		},
-		Items: func(_ context.Context, entity string) ([]string, error) {
-			return map[string][]string{"todo.my_tasks": {"Call the plumber", "Buy batteries"}, "todo.shopping_list": {"Milk"}}[entity], nil
-		}}
+		}}, func(_ context.Context, entity string) ([]string, error) {
+		return map[string][]string{"todo.my_tasks": {"Call the plumber", "Buy batteries"}, "todo.shopping_list": {"Milk"}}[entity], nil
+	}}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Milk", "calendar": "shopping"}) // the voice put the list there (pero)
@@ -947,3 +946,11 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 		t.Fatalf("off the shopping list: %v", c)
 	}
 }
+
+// listed is a Home Assistant agenda whose lists' items are given (the test's).
+type listed struct {
+	agenda.HA
+	items func(context.Context, string) ([]string, error)
+}
+
+func (l listed) Items(ctx context.Context, id string) ([]string, error) { return l.items(ctx, id) }

@@ -39,7 +39,7 @@ if [ -z "${METISC:-}" ]; then
   METISC=$M/metisc
 fi
 
-echo "== nina (the composition's image, bin/nina, bin/nina-whatsapp)"
+echo "== nina (the composition's image, the persona compiled, bin/nina-whatsapp; bin/nina is the deployment's: acasa live/build.sh)"
 (cd "$R/nina-live" && METISC="$METISC" ./build.sh)
 echo "== the radar (fsttm-live cmd/radar: her presence sensor)"
 (cd "$R/fsttm-live" && go build -o bin/radar ./cmd/radar)

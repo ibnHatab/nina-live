@@ -64,9 +64,8 @@ type Event struct {
 
 // Host is the music's host.
 type Host struct {
-	Player string // the media_player (default media_player.music_player_daemon)
-	// Call is a Home Assistant service call (nil: nothing plays)
-	Call func(ctx context.Context, domain, service string, data map[string]any) error
+	// Backend plays the stations (Home Assistant's media player: HA; the tablet's own player; nil: nothing plays)
+	Backend Backend
 	// Languages: the stations' languages this place listens to (music.languages; empty: any). The
 	// search asks in them first, and a remembered station in another (or none known) is not chosen
 	// (2026-11-26, pero: "news" was Radio Browser's most played news station, a French one).
@@ -539,23 +538,21 @@ func (h *Host) call(domain, service string, data map[string]any) {
 		h.sent, _ = data["volume_level"].(float64)
 		h.mu.Unlock()
 	}
-	if h.Call == nil {
+	if h.Backend == nil {
 		return
-	}
-	d := map[string]any{"entity_id": h.player()}
-	for k, v := range data {
-		d[k] = v
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	h.Call(ctx, domain, service, d)
-}
-
-func (h *Host) player() string {
-	if h.Player != "" {
-		return h.Player
+	switch service {
+	case "play_media":
+		url, _ := data["media_content_id"].(string)
+		h.Backend.Play(ctx, url)
+	case "media_stop":
+		h.Backend.Stop(ctx)
+	case "volume_set":
+		v, _ := data["volume_level"].(float64)
+		h.Backend.Volume(ctx, v)
 	}
-	return "media_player.music_player_daemon"
 }
 
 // Name names an offer in the rules' lines: its station (the one playing, or the one it stands for

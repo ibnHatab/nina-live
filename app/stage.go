@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -93,4 +93,31 @@ func screenTool(yt *youtube.Client, albums func(context.Context) ([]string, erro
 			}
 			return "error", "show: videos, photos or close"
 		}}
+}
+
+// albumKey: an album's name as said ("Nina's Gallery", "ninas gallery") and as titled match.
+func albumKey(s string) string {
+	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		switch r {
+		case '\'', '’', '‘', '`':
+			return -1
+		}
+		return r
+	}, strings.ToLower(s))), " ")
+}
+
+// findAlbum: the album's own title for a name said, or "".
+func findAlbum(albums []string, said string) string {
+	k := albumKey(said)
+	for _, a := range albums {
+		if albumKey(a) == k {
+			return a
+		}
+	}
+	for _, a := range albums { // "the gallery" for "Nina's gallery": one album containing what was said
+		if k != "" && strings.Contains(albumKey(a), k) {
+			return a
+		}
+	}
+	return ""
 }
