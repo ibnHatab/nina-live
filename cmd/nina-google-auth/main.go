@@ -4,7 +4,7 @@
 //	nina-google-auth -client ~/Downloads/client_secret_….json [-out ~/.config/nina/google-token.json]
 //
 // The client file is the person's own OAuth client of type Desktop app (Google Cloud console: APIs &
-// Services, Credentials), its project with the Calendar and Tasks APIs enabled and its consent screen
+// Services, Credentials), its project with the Calendar, Tasks and Photos Library APIs enabled and its consent screen
 // published (in Testing, Google expires the refresh token in 7 days). It prints the sign-in URL, waits on
 // a loopback port for Google's redirect, exchanges the code and writes the client id, its secret and the
 // refresh token to -out (chmod 600). Nothing is printed of the tokens. Put the file on another machine as
@@ -28,7 +28,8 @@ import (
 	"time"
 )
 
-const scopes = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks"
+const scopes = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks " +
+	"https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata https://www.googleapis.com/auth/photoslibrary.appendonly"
 
 func expand(p string) string {
 	if strings.HasPrefix(p, "~/") {

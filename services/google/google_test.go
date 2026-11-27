@@ -135,3 +135,53 @@ func writeFile(p string, b []byte, mode uint32) error {
 	}
 	return os.Chmod(p, os.FileMode(mode))
 }
+
+// TestHerPhotoAlbums: the albums she made, an album's photos (images only), and an upload into an album
+// made for it.
+func TestHerPhotoAlbums(t *testing.T) {
+	var made []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/token":
+			w.Write([]byte(`{"access_token":"A","expires_in":3600}`))
+		case r.URL.Path == "/ph/albums" && r.Method == "GET":
+			w.Write([]byte(`{"albums":[{"id":"a1","title":"Nina's gallery","mediaItemsCount":"2"}]}`))
+		case r.URL.Path == "/ph/albums" && r.Method == "POST":
+			made = append(made, "album")
+			w.Write([]byte(`{"id":"a2"}`))
+		case r.URL.Path == "/ph/mediaItems:search":
+			w.Write([]byte(`{"mediaItems":[{"id":"m1","filename":"a.jpg","baseUrl":"https://lh3/x","mimeType":"image/jpeg"},{"id":"m2","filename":"v.mp4","baseUrl":"https://lh3/v","mimeType":"video/mp4"}]}`))
+		case r.URL.Path == "/ph/uploads":
+			if r.Header.Get("X-Goog-Upload-Protocol") != "raw" {
+				http.Error(w, "raw", 400)
+				return
+			}
+			made = append(made, "upload")
+			w.Write([]byte(`UPTOKEN`))
+		case r.URL.Path == "/ph/mediaItems:batchCreate":
+			var b map[string]any
+			json.NewDecoder(r.Body).Decode(&b)
+			if b["albumId"] != "a2" {
+				http.Error(w, "album", 400)
+				return
+			}
+			made = append(made, "item")
+			w.Write([]byte(`{}`))
+		default:
+			http.Error(w, r.URL.Path, 404)
+		}
+	}))
+	defer srv.Close()
+	c := New(Token{ClientID: "C", ClientSecret: "S", RefreshToken: "R"})
+	c.TokenURL, c.PhotosURL = srv.URL+"/token", srv.URL+"/ph"
+	ctx := context.Background()
+	if ts, err := c.AlbumTitles(ctx); err != nil || len(ts) != 1 || ts[0] != "Nina's gallery" {
+		t.Fatalf("albums: %v %v", ts, err)
+	}
+	if ps, err := c.Photos(ctx, "a1", 10); err != nil || len(ps) != 1 || ps[0].URL != "https://lh3/x" {
+		t.Fatalf("photos: %v %v", ps, err)
+	}
+	if err := c.Upload(ctx, "Kitchen", "k.jpg", []byte("jpeg")); err != nil || strings.Join(made, ",") != "album,upload,item" {
+		t.Fatalf("upload: %v %v", made, err)
+	}
+}

@@ -3,7 +3,8 @@
 // (the redesign's Google services, s-b478fe59). The person's own OAuth client and one sign-in give a
 // refresh token kept in a file (chmod 600); its access tokens are fetched here as they expire.
 //
-// Scopes: https://www.googleapis.com/auth/calendar.events and https://www.googleapis.com/auth/tasks.
+// Scopes: https://www.googleapis.com/auth/calendar.events and https://www.googleapis.com/auth/tasks; for her
+// photo albums (photos.go) photoslibrary.readonly.appcreateddata and photoslibrary.appendonly.
 package google
 
 import (
@@ -32,7 +33,7 @@ type Client struct {
 	tok  Token
 	HTTP *http.Client
 	// the endpoints (tests: an httptest server)
-	TokenURL, CalendarURL, TasksURL string
+	TokenURL, CalendarURL, TasksURL, PhotosURL string
 	// Calendars: the agenda's calendar ids by name (Google's calendarList needs a wider scope than
 	// calendar.events: the person names them in the config)
 	Calendars map[string]string

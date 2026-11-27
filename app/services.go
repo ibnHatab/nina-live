@@ -19,6 +19,9 @@ type Services struct {
 	// Agenda: "google" puts the agenda's writes and the read tools' lists and calendars on Google's APIs
 	// (the agenda: map's values are then Google calendar ids and task list titles or ids)
 	Agenda string `yaml:"agenda"`
+	// Photos: "google" lists her albums on Google Photos directly (the albums she made: Google's rule since 2025,
+	// as for Home Assistant's integration) instead of through the deployment's backend
+	Photos string `yaml:"photos"`
 	Google struct {
 		Token     string            `yaml:"token"`     // the credential file (chmod 600): client id, secret, refresh token
 		Calendars map[string]string `yaml:"calendars"` // the calendars the read tools show: id → name
@@ -35,14 +38,20 @@ func Direct(c Config, b Backends) (Backends, error) {
 	s := c.Services
 	r := &mixed{base: b.Reader}
 	var lines []func(ctx context.Context) []line
-	if s.Agenda == "google" {
+	var g *google.Client
+	if s.Agenda == "google" || s.Photos == "google" {
 		if s.Google.Token == "" {
-			return b, fmt.Errorf("services: agenda google needs services.google.token")
+			return b, fmt.Errorf("services: google needs services.google.token")
 		}
-		g, err := google.Load(expand(s.Google.Token))
-		if err != nil {
+		var err error
+		if g, err = google.Load(expand(s.Google.Token)); err != nil {
 			return b, err
 		}
+	}
+	if s.Photos == "google" {
+		b.Albums = g.AlbumTitles
+	}
+	if s.Agenda == "google" {
 		b.Agenda = g
 		r.google, r.cals = g, s.Google.Calendars
 		lines = append(lines, r.agendaLines)

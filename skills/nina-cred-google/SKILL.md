@@ -11,8 +11,9 @@ token, and never prints the token file.
 ## 1. The OAuth client (the person, in the Google Cloud console)
 
 1. The project Nina's Home Assistant integrations use, or a new one. **APIs & Services → Library**: enable
-   **Google Calendar API** and **Google Tasks API**.
-2. **OAuth consent screen**: the scopes `.../auth/calendar.events` and `.../auth/tasks`. Keep it **published**
+   **Google Calendar API**, **Google Tasks API** and **Photos Library API**.
+2. **OAuth consent screen**: the scopes `.../auth/calendar.events`, `.../auth/tasks`,
+   `.../auth/photoslibrary.readonly.appcreateddata` and `.../auth/photoslibrary.appendonly`. Keep it **published**
    ("In production"). In *Testing*, Google expires the refresh token after 7 days (`invalid_grant`).
 3. **Credentials → Create credentials → OAuth client ID → Desktop app.** This is a different client from
    Home Assistant's Web client: it needs no redirect URI. Download its JSON.
@@ -24,7 +25,7 @@ cd ~/repo/nina-live && go run ./cmd/nina-google-auth -client ~/Downloads/client_
 ```
 
 It prints a Google URL. Sign in with the account whose calendar and tasks Nina keeps, and allow both scopes
-(an unverified app shows a warning: Advanced → continue). It writes `~/.config/nina/google-token.json`
+(an unverified app shows a warning: Advanced → continue). The sign-in asks for all four scopes and refuses a token without them. It writes `~/.config/nina/google-token.json`
 (chmod 600). Delete the downloaded client JSON afterwards, or keep it private.
 
 On another machine (the tablet, a Pi), copy the token file as the other keys are copied (scp; on Android, the
@@ -38,6 +39,7 @@ services:
   google:
     token: ~/.config/nina/google-token.json
     calendars: {"<her calendar id>@group.calendar.google.com": "my calendar", "primary": "your calendar"}
+  photos: google                    # her albums on Google Photos directly (the albums she made)
   weather: {lat: 45.75, lon: 21.23} # Met.no directly (optional: the weather without Home Assistant)
 agenda:                             # each target handle → Google's id: a calendar id, or a task list's title or id
   nina_cal: "<her calendar id>@group.calendar.google.com"
@@ -55,3 +57,12 @@ own integrations, which poll: a direct write shows there after their next poll.
 - `go test ./services/...` (a fake Google, a fake Met.no).
 - Nina's log after "add milk to the shopping list": `agenda todo` with no `err`, and the item in Google Tasks.
 - `invalid_grant`: the token was revoked, or the consent screen is in Testing. Run the sign-in again.
+
+## Photos: what the API shows
+
+Since 31 March 2025, Google's Photos Library API shows an app only the albums and photos that app created.
+Home Assistant's Google Photos integration is under the same rule: its photos card shows the albums the
+integration made. Nina's direct access works the same way: `services/google` lists her albums, lists their
+photos and uploads into an album (creating it when needed). Photos taken on the phone reach her only through
+an upload. Whether albums made by Home Assistant's integration are visible to Nina's Desktop client is to be
+checked on the first sign-in: Google ties app-created content to the app that created it.

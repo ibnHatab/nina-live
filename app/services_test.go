@@ -48,4 +48,8 @@ func TestServicesAreSwitchesPartByPart(t *testing.T) {
 	if _, err := Direct(c, b); err == nil {
 		t.Fatal("the agenda on Google without a token")
 	}
+	c.Services.Agenda, c.Services.Photos = "", "google"
+	if _, err := Direct(c, b); err == nil {
+		t.Fatal("the photos on Google without a token")
+	}
 }
