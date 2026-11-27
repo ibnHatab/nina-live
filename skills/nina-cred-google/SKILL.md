@@ -89,4 +89,10 @@ account): a photo is hers when it was uploaded with her client's token. So:
   her screen. The person scans it, picks photos from the whole library and presses Done. She copies each into
   her album (a new upload: hers for good, so it is a second copy in the account, counted in its storage) and
   says how many. The Picker's hour-long links matter only for that copy, made at once.
+- **A friend's photos, by a shared album** (the user, 2026-11-28): the friend shares an album with Nina's Google
+  account (the token's) in Google Photos; the person accepts the share there, signed in as her account; then
+  "add photos" and, in the Picker (opened on a device signed in as her account: the session is hers), the
+  shared album is searched for and its photos picked. She copies them into her album: new uploads of hers, so
+  they stay when the friend stops sharing. Tell the friend that. If the Picker does not list the shared album,
+  "Save to library" on it first (Google Photos), then pick. Each copy counts in her account's storage.
 The Ambient API is for later.
