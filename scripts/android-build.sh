@@ -44,7 +44,9 @@ if [ "${1:-}" = --install ]; then
   adb push "$here/mobile/android.yaml" "$st/dialogue.yaml" > /dev/null
   adb push "$here/prompts/nina.md" "$here/prompts/voice.md" "$st/" > /dev/null
   adb push "$key" "$st/gemini.key" > /dev/null
+  okey="${OPENROUTER_KEY:-$HOME/.config/nina/openrouter.env}"   # the task runner's last fallback
+  [ -f "$okey" ] && adb push "$okey" "$st/openrouter.env" > /dev/null
   adb push "$here/catalog" "$st/" > /dev/null
-  adb shell "chmod -R a+rX $st && run-as live.fsttm.app sh -c 'mkdir -p files/nina files/.config/fsttm && cp $st/dialogue.yaml $st/nina.md $st/voice.md files/nina/ && cp $st/gemini.key files/.config/fsttm/ && chmod 600 files/.config/fsttm/gemini.key && rm -rf files/catalog && cp -r $st/catalog files/' ; rm -rf $st"
+  adb shell "chmod -R a+rX $st && run-as live.fsttm.app sh -c 'mkdir -p files/nina files/.config/fsttm files/.config/nina && cp $st/dialogue.yaml $st/nina.md $st/voice.md files/nina/ && cp $st/gemini.key files/.config/fsttm/ && chmod 600 files/.config/fsttm/gemini.key && { [ ! -f $st/openrouter.env ] || { cp $st/openrouter.env files/.config/nina/ && chmod 600 files/.config/nina/openrouter.env; }; } && rm -rf files/catalog && cp -r $st/catalog files/' ; rm -rf $st"
   adb shell run-as live.fsttm.app ls -R files/nina files/.config | head -12
 fi

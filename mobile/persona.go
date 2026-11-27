@@ -41,12 +41,25 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 		return nil, err
 	}
 	var d *dialogue.Dialogue
-	runner, err := tasks.New(tasks.Config{Provider: "google", Model: "gemini-3.8-flash",
-		KeyFile: filepath.Join(files, ".config", "fsttm", "gemini.key"),
+	gkey := filepath.Join(files, ".config", "fsttm", "gemini.key")
+	// pero's chain (acasa live/nina-pero.yaml): Google's Flash models answer "high demand" at times
+	// (the first task here failed so, 2026-11-27); then OpenRouter's DeepSeek when all of Google is busy
+	fbs := []tasks.Fallback{{Provider: "google", Model: "gemini-3.5-flash", KeyFile: gkey},
+		{Provider: "google", Model: "gemini-3.5-flash-lite", KeyFile: gkey},
+		{Provider: "google", Model: "gemini-3.1-flash-lite", KeyFile: gkey}}
+	if okey := filepath.Join(files, ".config", "nina", "openrouter.env"); fileExists(okey) {
+		fbs = append(fbs, tasks.Fallback{Provider: "openrouter", Model: "deepseek/deepseek-v4.1-flash", KeyFile: okey})
+	}
+	runner, err := tasks.New(tasks.Config{Provider: "google", Model: "gemini-3.8-flash", KeyFile: gkey, Fallbacks: fbs,
+		MaxTurns: 10, Timeout: 5 * time.Minute,
 		System:  string(char) + "\n\n# The task runner\n\n" + taskCharter,
 		Note: func(level, text string) {
+			fmt.Fprintf(os.Stderr, "nina: note %s: %s\n", level, text)
 			if d != nil {
-				d.Note(level, text)
+				d.Log("task_note", map[string]any{"level": level, "text": text})
+				if err := d.Note(level, text); err != nil {
+					fmt.Fprintf(os.Stderr, "nina: note refused: %v\n", err)
+				}
 			}
 		}})
 	if err != nil {
@@ -64,6 +77,22 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 				return map[string]any{"status": "error", "text": "a goal is needed"}
 			}
 			t := runner.Delegate(goal, "important")
+			fmt.Fprintf(os.Stderr, "nina: task %s: %s\n", t.ID, goal)
+			d.Log("task_start", map[string]any{"task": t.ID, "goal": goal})
+			go func() {
+				select {
+				case <-t.Done:
+					f := map[string]any{"task": t.ID, "result": t.Result, "turns": t.Turns}
+					if t.Err != nil {
+						f["error"] = t.Err.Error()
+					}
+					fmt.Fprintf(os.Stderr, "nina: task %s ended: %v\n", t.ID, f)
+					d.Log("task_end", f)
+				case <-time.After(3 * time.Minute):
+					fmt.Fprintf(os.Stderr, "nina: task %s: no end in 3 min\n", t.ID)
+					d.Log("task_stuck", map[string]any{"task": t.ID})
+				}
+			}()
 			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}}}
 	d, err = dialogue.New(ctx, cfg, dialogue.NewEvents(io.Discard), tools)
@@ -94,3 +123,5 @@ func clock(ctx context.Context, d *dialogue.Dialogue) {
 		}
 	}
 }
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
