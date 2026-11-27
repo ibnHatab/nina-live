@@ -85,4 +85,8 @@ account): a photo is hers when it was uploaded with her client's token. So:
   uploaded from the PC.
 - **Not** through photos.google.com or Google's apps: those are Google's client, and their photos stay
   invisible to her, even inside her album.
-The Picker and the Ambient API are for later.
+- **The Picker into her album** (the user, 2026-11-28): "add photos" (her tool add_photos) puts a QR code on
+  her screen. The person scans it, picks photos from the whole library and presses Done. She copies each into
+  her album (a new upload: hers for good, so it is a second copy in the account, counted in its storage) and
+  says how many. The Picker's hour-long links matter only for that copy, made at once.
+The Ambient API is for later.

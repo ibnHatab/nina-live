@@ -169,6 +169,7 @@ type Backends struct {
 	// Presence runs until ctx ends: the radar's presence and distance (her voice's aim)
 	Presence func(ctx context.Context, set func(core.Presence))
 	Albums   func(ctx context.Context) ([]string, error) // the photo albums her screen can show
+	Photos   Photos                                      // her albums with the Picker (add_photos: photos.go)
 }
 
 // Named is a list, a calendar or a weather source by its id and its name.
@@ -308,6 +309,17 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	yt, err := youtube.Load(expand(firstOf(c.YouTube.Key, "~/.config/nina/youtube.key")), c.YouTube.Playlists)
 	if err != nil {
 		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
+	}
+	if b.Photos != nil { // add_photos: the Picker's QR code on her screens, the picked photos into her album
+		reads = append(reads, pickTool(b.Photos, func(kind string, d map[string]any) {
+			if stageLog != nil {
+				stageLog(kind, d)
+			}
+		}, func(level, text string) {
+			if v := k.Voice(); v != nil {
+				v.Note(level, text)
+			}
+		}))
 	}
 	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
@@ -608,7 +620,7 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
 			}
-			if _, ok := e["png"]; ok && kind == "wa_status" { // a WhatsApp link's QR: on her screens, not in the log
+			if _, ok := e["png"]; ok && (kind == "wa_status" || kind == "photos_pick") { // a link's QR: on her screens, not in the log
 				c := map[string]any{}
 				for k, v := range e {
 					if k != "png" {

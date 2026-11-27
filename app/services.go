@@ -49,7 +49,7 @@ func Direct(c Config, b Backends) (Backends, error) {
 		}
 	}
 	if s.Photos == "google" {
-		b.Albums = g.AlbumTitles
+		b.Albums, b.Photos = g.AlbumTitles, g
 	}
 	if s.Agenda == "google" {
 		b.Agenda = g
