@@ -108,8 +108,10 @@ type Config struct {
 		Answer  string        `yaml:"answer"`   // named (direct and named in groups) | self (only the number's own chat) | none
 		Keep    []string      `yaml:"keep"`     // chats kept: self, names, all (none: all)
 	} `yaml:"whatsapp"`
-	Radar *bool        `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
-	MCP   []mcp.Server `yaml:"mcp"`   // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
+	Radar *bool `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
+	// Cards: the voice's home tools, "" one per package, "two" director and attended (cards.go, the redesign's step 5)
+	Cards string       `yaml:"cards"`
+	MCP   []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -370,7 +372,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		}
 		return nil
 	}, "prefs")
-	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k, reads))
+	d, err := dialogue.New(ctx, dcfg, dialogue.NewEvents(io.Discard), voiceTools(k, reads, c.Cards))
 	if err != nil {
 		return fail(err)
 	}
@@ -517,33 +519,18 @@ func readTools(o Reader) []tasks.Tool {
 }
 
 // voiceTools are Gemini Live's: the home's cards, the read tools and, with tasks, delegate.
-func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
-	var decls []*genai.FunctionDeclaration
-	funcs := map[string]dialogue.ToolFunc{}
-	for _, t := range append(k.HomeTools(), reads...) {
-		t := t
-		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
-		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
-			if g, _ := args["genre"].(string); t.Name == "home_music" && args["intent"] == "PLAY" && g == "" {
-				// the voice gives the person's words alone ("calm"): they are the kind asked for
-				// (intent.yaml: genre is a known kind or what the person said); the mapper wants one
-				if w, _ := args["words"].(string); w != "" {
-					args["genre"] = w
-				}
-			}
-			status, text := t.Call(ctx, args)
-			return map[string]any{"status": status, "text": text}
-		}
-	}
+func voiceTools(k *core.Core, reads []tasks.Tool, cards string) dialogue.Tools {
+	var del *genai.FunctionDeclaration
+	var delFn dialogue.ToolFunc
 	if k.Tasks != nil {
-		decls = append(decls, &genai.FunctionDeclaration{Name: "delegate",
+		del = &genai.FunctionDeclaration{Name: "delegate",
 			Description: "Hand an open-ended goal to Nina's task runner: something that takes several steps, " +
 				"checking things or doing them in order, or remembering what was said before. It answers at once; " +
 				"the result comes later as a note. Not for a single command a home tool does by itself.",
 			ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{
 				"goal": map[string]any{"type": "string", "description": "the goal, in the person's terms, complete"}},
-				"required": []any{"goal"}}})
-		funcs["delegate"] = func(_ context.Context, args map[string]any) map[string]any {
+				"required": []any{"goal"}}}
+		delFn = func(_ context.Context, args map[string]any) map[string]any {
 			goal, _ := args["goal"].(string)
 			if strings.TrimSpace(goal) == "" {
 				return map[string]any{"status": "error", "text": "a goal is needed"}
@@ -552,9 +539,37 @@ func voiceTools(k *core.Core, reads []tasks.Tool) dialogue.Tools {
 			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}
 	}
+	if cards == "two" { // the redesign's step 5 (cards.go)
+		return twoCards(k, reads, del, delFn)
+	}
+	var decls []*genai.FunctionDeclaration
+	funcs := map[string]dialogue.ToolFunc{}
+	for _, t := range append(k.HomeTools(), reads...) {
+		t := t
+		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
+		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
+			musicWords(t.Name, args)
+			status, text := t.Call(ctx, args)
+			return map[string]any{"status": status, "text": text}
+		}
+	}
+	if del != nil {
+		decls = append(decls, del)
+		funcs["delegate"] = delFn
+	}
 	// (the Live API's own google_search beside them was tried, 2026-11-25: on a key without billing the
 	// session's setup itself is refused, "exceeded your current quota": her voice would not start)
 	return dialogue.Tools{Decls: []*genai.Tool{{FunctionDeclarations: decls}}, Funcs: funcs}
+}
+
+// musicWords: the voice gives the person's words alone ("calm") to PLAY: they are the kind asked for
+// (intent.yaml: genre is a known kind or what the person said); the mapper wants one.
+func musicWords(tool string, args map[string]any) {
+	if g, _ := args["genre"].(string); tool == "home_music" && args["intent"] == "PLAY" && g == "" {
+		if w, _ := args["words"].(string); w != "" {
+			args["genre"] = w
+		}
+	}
 }
 
 // strainCore is the core once open: her services' API errors (and successes) go to it as strain
