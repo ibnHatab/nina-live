@@ -11,9 +11,10 @@ token, and never prints the token file.
 ## 1. The OAuth client (the person, in the Google Cloud console)
 
 1. The project Nina's Home Assistant integrations use, or a new one. **APIs & Services → Library**: enable
-   **Google Calendar API**, **Google Tasks API** and **Photos Library API**.
+   **Google Calendar API**, **Google Tasks API**, **Photos Library API** and **Photos Picker API**.
 2. **OAuth consent screen**: the scopes `.../auth/calendar.events`, `.../auth/tasks`,
-   `.../auth/photoslibrary.readonly.appcreateddata` and `.../auth/photoslibrary.appendonly`. Keep it **published**
+   `.../auth/photoslibrary.readonly.appcreateddata`, `.../auth/photoslibrary.appendonly` and
+   `.../auth/photospicker.mediaitems.readonly`. Keep it **published**
    ("In production"). In *Testing*, Google expires the refresh token after 7 days (`invalid_grant`).
 3. **The client: Home Assistant's own (recommended where it has one), or a new Desktop app.**
    - *Home Assistant's Web client* (the one its Google integrations use as application credentials): Nina
@@ -30,7 +31,7 @@ cd ~/repo/nina-live && go run ./cmd/nina-google-auth -client ~/Downloads/client_
 ```
 
 It prints a Google URL. Sign in with the account whose calendar and tasks Nina keeps, and allow both scopes
-(an unverified app shows a warning: Advanced → continue). The sign-in asks for all four scopes and refuses a token without them. It writes `~/.config/nina/google-token.json`
+(an unverified app shows a warning: Advanced → continue). The sign-in asks for all five scopes and refuses a token without them. It writes `~/.config/nina/google-token.json`
 (chmod 600). Delete the downloaded client JSON afterwards, or keep it private.
 
 On another machine (the tablet, a Pi), copy the token file as the other keys are copied (scp; on Android, the
@@ -72,3 +73,12 @@ photos and uploads into an album (creating it when needed). Photos taken on the 
 an upload. Google ties app-created content to the app (the OAuth client) that created it: signed in with Home
 Assistant's Web client, Nina reads the albums Home Assistant made; with a Desktop client of her own, only
 hers. Check it on the first sign-in.
+
+### Adding photos to her album
+
+The restriction is **per photo, not per album**: a photo added to her album in Google Photos' own pages
+(photos.google.com, the phone app) stays invisible to her, because she did not upload it. Two ways that work:
+- **The Picker**: from her settings, she opens a picking and shows its link (on a computer: open it; on her
+  screen: a QR code). The person chooses photos from the whole library and presses Done. Nina downloads them
+  and uploads them into her album (`CopyPicked`), and they are hers for good.
+- **An upload through Nina**: a file given to her, uploaded into her album (`Upload`).

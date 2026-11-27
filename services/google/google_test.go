@@ -3,6 +3,7 @@ package google
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,5 +184,58 @@ func TestHerPhotoAlbums(t *testing.T) {
 	}
 	if err := c.Upload(ctx, "Kitchen", "k.jpg", []byte("jpeg")); err != nil || strings.Join(made, ",") != "album,upload,item" {
 		t.Fatalf("upload: %v %v", made, err)
+	}
+}
+
+// TestThePickedPhotosBecomeHers: a picking's link, its end, the picked photos downloaded with her token and
+// uploaded into her album, the session deleted.
+func TestThePickedPhotosBecomeHers(t *testing.T) {
+	var log []string
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/token":
+			w.Write([]byte(`{"access_token":"A","expires_in":3600}`))
+		case r.URL.Path == "/pk/sessions" && r.Method == "POST":
+			w.Write([]byte(`{"id":"s1","pickerUri":"https://photos.google.com/picker/s1","mediaItemsSet":false}`))
+		case r.URL.Path == "/pk/sessions/s1" && r.Method == "GET":
+			w.Write([]byte(`{"id":"s1","mediaItemsSet":true}`))
+		case r.URL.Path == "/pk/sessions/s1" && r.Method == "DELETE":
+			log = append(log, "ended")
+		case r.URL.Path == "/pk/mediaItems":
+			w.Write([]byte(`{"mediaItems":[{"id":"p1","type":"PHOTO","mediaFile":{"baseUrl":"` + srv.URL + `/lh/p1","mimeType":"image/jpeg","filename":"desk.jpg"}},{"id":"v1","type":"VIDEO","mediaFile":{"baseUrl":"x","mimeType":"video/mp4"}}]}`))
+		case r.URL.Path == "/lh/p1=d":
+			if r.Header.Get("Authorization") != "Bearer A" {
+				http.Error(w, "no", 401)
+				return
+			}
+			w.Write([]byte("JPEG"))
+		case r.URL.Path == "/ph/albums" && r.Method == "GET":
+			w.Write([]byte(`{"albums":[{"id":"a1","title":"Office"}]}`))
+		case r.URL.Path == "/ph/uploads":
+			b, _ := io.ReadAll(r.Body)
+			log = append(log, "upload "+string(b))
+			w.Write([]byte("TOK"))
+		case r.URL.Path == "/ph/mediaItems:batchCreate":
+			log = append(log, "into a1")
+			w.Write([]byte(`{}`))
+		default:
+			http.Error(w, r.URL.Path, 404)
+		}
+	}))
+	defer srv.Close()
+	c := New(Token{ClientID: "C", ClientSecret: "S", RefreshToken: "R"})
+	c.TokenURL, c.PhotosURL, c.PickerURL = srv.URL+"/token", srv.URL+"/ph", srv.URL+"/pk"
+	ctx := context.Background()
+	s, err := c.NewPicking(ctx)
+	if err != nil || s.URI == "" || s.Done {
+		t.Fatalf("the picking: %+v %v", s, err)
+	}
+	if s, _ = c.Picking(ctx, s.ID); !s.Done {
+		t.Fatal("not done")
+	}
+	n, err := c.CopyPicked(ctx, s.ID, "office")
+	if err != nil || n != 1 || strings.Join(log, ",") != "upload JPEG,into a1,ended" {
+		t.Fatalf("copied %d: %v %v", n, log, err)
 	}
 }

@@ -33,7 +33,7 @@ type Client struct {
 	tok  Token
 	HTTP *http.Client
 	// the endpoints (tests: an httptest server)
-	TokenURL, CalendarURL, TasksURL, PhotosURL string
+	TokenURL, CalendarURL, TasksURL, PhotosURL, PickerURL string
 	// Calendars: the agenda's calendar ids by name (Google's calendarList needs a wider scope than
 	// calendar.events: the person names them in the config)
 	Calendars map[string]string
