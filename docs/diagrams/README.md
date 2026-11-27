@@ -8,6 +8,7 @@ Graphviz sources and their SVG renders, read from the code (nina-live, acasa, ni
 | `twolevel.dot` | the two-level reasoning system: what crosses between the LLMs (level 1) and the semantic world + Metis rules (level 2) |
 | `improvement.dot` | data flow 2: surprises → workspace → metis-loop (case, pack, gates, ruling) → approval → catalog; what produces today and what is planned |
 | `evolution.dot` | how the design evolved from the Three Streams paper |
+| `streamlined.dot` | proposal: data flow 1 folded into three channels around the director's two cards (intent port, view port, MCP as a measured residual); to be tried after the real SITL loop gives metrics |
 
 Colours carry meaning: `#0000aa` the coupling under discussion, `#888888` dashed = planned or idle. A page
 that embeds the SVGs maps them to its theme (the Nina Reasoning Map artifact does).

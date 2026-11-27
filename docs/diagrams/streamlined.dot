@@ -1,0 +1,54 @@
+// Proposal (2026-11-27): data flow 1 streamlined around the director's two cards.
+// Five couplings today (verbs down, outcomes up, beliefs up, steering, MCP) become three channels:
+//   A. one intent port in, through the director (two cards for the voice; delegate becomes escalate),
+//   B. one view port out (beliefs, outcomes, conclusions, surprises), delivered by the consumer's state,
+//   C. a measured residual: MCP calls the rules do not cover, logged as uncovered (they feed F7).
+// Colours: #0000aa = a channel of the proposal (accent); #888888 dashed = the residual / measured path.
+digraph streamlined {
+  graph [rankdir=TB, nodesep=0.5, ranksep=0.45, newrank=true, fontname="Helvetica", fontsize=11, bgcolor="white", pad=0.2];
+  node  [shape=box, style="rounded", fontname="Helvetica", fontsize=11, color="black", margin="0.12,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, color="black", arrowsize=0.6];
+
+  person [label="person\n(voice, WhatsApp)", shape=ellipse];
+  live   [label="Gemini Live\n2 stable tools: director · attended"];
+  pi     [label="pi task\ncards of its task's specialists"];
+  intent [label="A · intent port\ntyped by the card's intent.yaml", color="#0000aa"];
+  view   [label="B · view port\nfiltered by attention or task", color="#0000aa"];
+  dir    [label="director\nroute · ask · attention · escalate", color="#0000aa"];
+  world  [label="semantic world\nbeliefs → levels"];
+  spec   [label="specialists\nlights … agenda · commitments"];
+  log    [label="event log", shape=cylinder];
+  ha     [label="Home Assistant", shape=box3d];
+  ws     [label="workspace\nsurprises · uncovered", shape=folder];
+
+  { rank=same; live; pi; }
+  { rank=same; intent; view; }
+  { rank=same; dir; world; }
+  { rank=same; spec; log; }
+  { rank=same; ha; ws; }
+
+  // downward: intents become commands
+  person -> live   [label="speech"];
+  person -> pi     [label="WhatsApp → task", style=dashed];
+  live   -> intent [label="director(verb)\nattended(verb, slots)", color="#0000aa", fontcolor="#0000aa"];
+  pi     -> intent [label="card verbs", color="#0000aa", fontcolor="#0000aa"];
+  intent -> dir    [label="cmd_route(I)"];
+  dir    -> spec   [label="forward(D, I)\nwake"];
+  spec   -> ha     [label="command"];
+  spec   -> ws     [label="surprise", color="#888888", fontcolor="#888888", style=dashed];
+
+  // upward: the world and the outcomes become one view
+  ha     -> log    [label="state", constraint=false];
+  log    -> world  [label="apply"];
+  world  -> spec   [label="level atoms", constraint=false];
+  world  -> view   [label="projected lines"];
+  spec   -> view   [label="done · refused\nconclusion", constraint=false];
+  dir    -> view   [label="ask · attention moved\n(card text)", constraint=false];
+  view   -> live   [label="by state: tool result\nContext · Note", color="#0000aa", fontcolor="#0000aa", constraint=false];
+  view   -> pi     [label="by state: TransformContext\nSteer · FollowUp", color="#0000aa", fontcolor="#0000aa", constraint=false];
+  dir    -> pi     [label="escalate → task(goal)\n(replaces delegate)", color="#0000aa", fontcolor="#0000aa", constraint=false];
+
+  // the residual
+  pi     -> ha     [label="C · MCP residual\nlogged uncovered(call)", color="#888888", fontcolor="#888888", style=dashed, constraint=false];
+  live   -> person [label="said", constraint=false];
+}
