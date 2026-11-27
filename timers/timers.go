@@ -190,7 +190,7 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		h.record(Event{Kind: "armed", Slot: slot, Subject: subject(payload), Scene: scene})
 	case "ring", "remind":
 		h.record(Event{Kind: "rang", Slot: slot})
-	case "cancel", "cancel_reminder":
+	case "cancel", "cancel_reminder", "cancel_ready":
 		h.record(Event{Kind: "cancelled", Slot: slot})
 	}
 }
