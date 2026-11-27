@@ -17,6 +17,9 @@ import (
 
 func init() {
 	fmobile.SetPersona(start)
+	// her keys, typed on the app's start page when missing (kept in its private files)
+	fmobile.SetKeys(fmobile.Key{Name: "gemini", Label: "Gemini API key (Google AI Studio)", Path: ".config/fsttm/gemini.key"},
+		fmobile.Key{Name: "openrouter", Label: "OpenRouter API key (the tasks' last fallback)", Path: ".config/nina/openrouter.env", Optional: true})
 	// her own screen: her face and the conversation (acasa's ha-ui www/nina, put in the app's files as
 	// nina-ui and served by her panel at /nina/), remote: her card alone, no Home Assistant beside it
 	fmobile.SetPanel("http://127.0.0.1:8770/nina/shell.html?remote&fps=20,8&lite&scale=0.7")
