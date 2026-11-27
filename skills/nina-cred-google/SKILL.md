@@ -15,8 +15,13 @@ token, and never prints the token file.
 2. **OAuth consent screen**: the scopes `.../auth/calendar.events`, `.../auth/tasks`,
    `.../auth/photoslibrary.readonly.appcreateddata` and `.../auth/photoslibrary.appendonly`. Keep it **published**
    ("In production"). In *Testing*, Google expires the refresh token after 7 days (`invalid_grant`).
-3. **Credentials → Create credentials → OAuth client ID → Desktop app.** This is a different client from
-   Home Assistant's Web client: it needs no redirect URI. Download its JSON.
+3. **The client: Home Assistant's own (recommended where it has one), or a new Desktop app.**
+   - *Home Assistant's Web client* (the one its Google integrations use as application credentials): Nina
+     is then the same app to Google, and sees the Photos albums Home Assistant made. On the client's page add
+     the authorized redirect URI `http://localhost:8765/` and download its JSON. Home Assistant's own sign-in
+     keeps working: each sign-in has its own refresh token.
+   - *A new Desktop app* (where there is no Home Assistant: the tablet): no redirect URI. Nina sees only
+     the albums she makes herself.
 
 ## 2. The sign-in (the person, on a desktop with a browser)
 
@@ -64,5 +69,6 @@ Since 31 March 2025, Google's Photos Library API shows an app only the albums an
 Home Assistant's Google Photos integration is under the same rule: its photos card shows the albums the
 integration made. Nina's direct access works the same way: `services/google` lists her albums, lists their
 photos and uploads into an album (creating it when needed). Photos taken on the phone reach her only through
-an upload. Whether albums made by Home Assistant's integration are visible to Nina's Desktop client is to be
-checked on the first sign-in: Google ties app-created content to the app that created it.
+an upload. Google ties app-created content to the app (the OAuth client) that created it: signed in with Home
+Assistant's Web client, Nina reads the albums Home Assistant made; with a Desktop client of her own, only
+hers. Check it on the first sign-in.

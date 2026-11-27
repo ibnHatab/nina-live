@@ -1,7 +1,12 @@
 // nina-google-auth: the one sign-in that gives Nina her Google agenda without Home Assistant (the redesign's
 // Google services, s-b478fe59). The person runs it on a desktop with a browser; it is never run for them.
 //
-//	nina-google-auth -client ~/Downloads/client_secret_….json [-out ~/.config/nina/google-token.json]
+//	nina-google-auth -client ~/Downloads/client_secret_….json [-out ~/.config/nina/google-token.json] [-port 8765]
+//
+// The client may be a Desktop app's (its own loopback port) or the Web client Home Assistant's Google
+// integrations already use (application credentials): with that one Nina is the same app to Google, so she
+// sees the Photos albums Home Assistant made. A Web client needs http://localhost:PORT/ among its authorized
+// redirect URIs (Google Cloud console, the client's page), the port given here.
 //
 // The client file is the person's own OAuth client of type Desktop app (Google Cloud console: APIs &
 // Services, Credentials), its project with the Calendar, Tasks and Photos Library APIs enabled and its consent screen
@@ -42,28 +47,42 @@ func expand(p string) string {
 func main() {
 	client := flag.String("client", "", "the OAuth client's JSON (type Desktop app)")
 	out := flag.String("out", "~/.config/nina/google-token.json", "the token file to write (chmod 600)")
+	port := flag.Int("port", 8765, "a Web client's loopback port (its redirect http://localhost:PORT/ registered)")
 	flag.Parse()
 	b, err := os.ReadFile(expand(*client))
 	if err != nil {
 		log.Fatalf("the client file: %v", err)
 	}
+	type oclient struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+		AuthURI      string `json:"auth_uri"`
+		TokenURI     string `json:"token_uri"`
+	}
 	var cf struct {
-		Installed struct {
-			ClientID     string `json:"client_id"`
-			ClientSecret string `json:"client_secret"`
-			AuthURI      string `json:"auth_uri"`
-			TokenURI     string `json:"token_uri"`
-		} `json:"installed"`
+		Installed *oclient `json:"installed"`
+		Web       *oclient `json:"web"`
 	}
-	if err := json.Unmarshal(b, &cf); err != nil || cf.Installed.ClientID == "" {
-		log.Fatalf("the client file is not a Desktop app's (its JSON has no \"installed\" client): %v", err)
+	if err := json.Unmarshal(b, &cf); err != nil || (cf.Installed == nil && cf.Web == nil) {
+		log.Fatalf("the client file has no \"installed\" (Desktop app) or \"web\" client: %v", err)
 	}
-	c := cf.Installed
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		log.Fatal(err)
+	var c oclient
+	var ln net.Listener
+	var redirect string
+	if cf.Installed != nil {
+		c = *cf.Installed
+		if ln, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+			log.Fatal(err)
+		}
+		redirect = "http://" + ln.Addr().String() + "/"
+	} else { // Home Assistant's Web client: its registered loopback redirect
+		c = *cf.Web
+		if ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port)); err != nil {
+			log.Fatal(err)
+		}
+		redirect = fmt.Sprintf("http://localhost:%d/", *port)
+		fmt.Printf("A Web client: %s must be one of its authorized redirect URIs (Google Cloud console, the client's page).\n\n", redirect)
 	}
-	redirect := "http://" + ln.Addr().String() + "/"
 	sb := make([]byte, 16)
 	rand.Read(sb)
 	state := hex.EncodeToString(sb)
