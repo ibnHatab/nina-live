@@ -310,8 +310,9 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if err != nil {
 		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
 	}
+	var pick *tasks.Tool
 	if b.Photos != nil { // add_photos: the Picker's QR code on her screens, the picked photos into her album
-		reads = append(reads, pickTool(b.Photos, func(kind string, d map[string]any) {
+		pt := pickTool(b.Photos, func(kind string, d map[string]any) {
 			if stageLog != nil {
 				stageLog(kind, d)
 			}
@@ -319,7 +320,9 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 			if v := k.Voice(); v != nil {
 				v.Note(level, text)
 			}
-		}))
+		})
+		pick = &pt
+		reads = append(reads, pt)
 	}
 	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
@@ -402,7 +405,20 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		d.OnDuck = func(bool) { k.Music.Follow() } // a person over her: the music down with her at once
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
-	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
+	d.OnAction = func(action, arg string) (bool, error) { // her settings from her screens: name, persona, temperament
+		if action == "pick_photos" { // a button's add_photos (its arg: the album; "" Nina's gallery)
+			if pick == nil {
+				return true, fmt.Errorf("photos: not enabled in her config (services.photos: google)")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if st, text := pick.Call(ctx, map[string]any{"album": arg}); st == "error" {
+				return true, errors.New(text)
+			}
+			return true, nil
+		}
+		return k.Action(action, arg)
+	}
 	stageLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 	return a, nil
 }
