@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ibnHatab/fsttm-live v0.0.0-20261127192215-74d14191a60d
-	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127195959-85f43d28ef69
+	github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127221015-cebed1854871
 	github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/sky-valley/pi v1.6.32

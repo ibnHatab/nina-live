@@ -120,6 +120,7 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	cfg := Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
 		RouteIntents: os.Getenv("NINA_TEST_ROUTE") != "",
 		Escalate:     rigEscalate,
+		WorldBeat:    rigWorldBeat(),
 		Code:         "test", CheckpointEvery: 5,
 		Tasks: &tasks.Config{ModelValue: r.faux.GetModel(), KeyFile: key, System: "test", Mech: mech, MaxTurns: 8,
 			Timeout: 30 * time.Second, Tools: extra}}
@@ -328,9 +329,14 @@ func TestTheCoresLogRebuildsItsWorld(t *testing.T) {
 		providers.FauxStatic(say("The lab ventilation is on.")), // its confirmation, steered: one more request
 	})
 	wait(t, r.k.Tasks.Delegate("Start the lab ventilation.", "info"))
-	time.Sleep(600 * time.Millisecond) // the device obeys, the feed reads it back, a few beats
-	kinds := map[string]int{}
-	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error { kinds[e.Stream+"/"+e.Kind]++; return nil })
+	kinds := map[string]int{} // the device obeys, the feed reads it back, a few beats (and settles: the world's clock)
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		kinds = map[string]int{}
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error { kinds[e.Stream+"/"+e.Kind]++; return nil })
+		if kinds["world/checkpoint"] > 0 && kinds["task/done"] > 0 && kinds["reasoning/result"] > 0 {
+			break
+		}
+	}
 	for _, k := range []string{"world/command", "world/ha_state", "world/settle", "world/checkpoint", "task/created", "task/done", "reasoning/result"} {
 		if kinds[k] == 0 {
 			t.Fatalf("no %s in the log: %v", k, kinds)
@@ -1034,4 +1040,11 @@ func TestNoEscalateCardWhenItIsOff(t *testing.T) {
 			t.Fatal("the escalate card with Escalate off")
 		}
 	}
+}
+
+// rigWorldBeat: NINA_TEST_WORLD_BEAT (a duration) runs the suite with the semantic world on its own clock
+// (the redesign's step 3).
+func rigWorldBeat() time.Duration {
+	d, _ := time.ParseDuration(os.Getenv("NINA_TEST_WORLD_BEAT"))
+	return d
 }

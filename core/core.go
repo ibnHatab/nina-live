@@ -56,12 +56,15 @@ type Config struct {
 	Metisc   string
 	Packages []string // default metishome.Packages
 	Composed bool
-	// RouteIntents: every card's intent enters through the composition's director (the redesign's channel A,
-	// s-b478fe59: home.route director); off, straight into the card as before
 	// Escalate: a goal for the task runner goes through the escalate package's rules (the redesign's step 6:
 	// its card replaces the voice's delegate); off, its card is hidden and it starts no task
-	Escalate        bool
-	RouteIntents    bool
+	Escalate bool
+	// RouteIntents: every card's intent enters through the composition's director (the redesign's channel A,
+	// s-b478fe59: home.route director); off, straight into the card as before
+	RouteIntents bool
+	// WorldBeat: the semantic world settles on its own clock, this often (the redesign's step 3: its updates
+	// never wait for the rules or the LLMs in the loop); 0: on the rules' beat, as before
+	WorldBeat       time.Duration
 	Device          metishome.Device
 	Code            string // the build, for the world's checkpoints
 	CheckpointEvery int
@@ -309,7 +312,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	}
 	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
-		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, RouteIntents: c.RouteIntents, Records: c.Records, Hosts: hosts,
+		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, RouteIntents: c.RouteIntents, OwnClock: c.WorldBeat > 0, Records: c.Records, Hosts: hosts,
 		OnSurprise:  func(domain string, r map[string]any) { k.surprise(domain, r) },
 		OnReasoning: k.reasoning, OnTick: k.tick})
 	if err != nil {
@@ -778,6 +781,20 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 	}
 	tk := time.NewTicker(beat)
 	defer tk.Stop()
+	if wb := k.Cfg.WorldBeat; wb > 0 { // the world's own clock: its settle, whatever the rules are doing
+		go func() {
+			wt := time.NewTicker(wb)
+			defer wt.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-wt.C:
+					k.Home.Settle()
+				}
+			}
+		}()
+	}
 	for {
 		select {
 		case <-ctx.Done():
