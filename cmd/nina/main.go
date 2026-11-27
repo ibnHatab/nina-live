@@ -319,9 +319,11 @@ func main() {
 		for _, t := range reads {
 			k.Tasks.AddTool(t)
 		}
-		// Home Assistant through its MCP servers: Nina's own three tools (hatools), the tasks' only
+		// Home Assistant through its MCP servers: Nina's own three tools (hatools), the tasks' only. Each call is
+		// what no card covered: logged (stream mcp, uncovered) for the Metis workspace and the SITL's coverage
+		// metric (the redesign's channel C, s-b478fe59)
 		for _, t := range hatools.Dial(ctx, c.MCP, stdlog.Printf) {
-			k.Tasks.AddTool(t)
+			k.Tasks.AddTool(uncovered(L, t))
 		}
 	}
 	stdlog.Printf("the world rebuilt from snapshot %d (%s) and %d events (%d checkpoints checked, %d missed, genesis %v; %d pruned); %s backend, composed %v, tasks %v; %.2fs",
@@ -643,4 +645,15 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			}
 		}
 	}
+}
+
+// uncovered wraps an MCP tool: every call is logged as an action no card covered (its name, arguments, status).
+func uncovered(L *nlog.Log, t tasks.Tool) tasks.Tool {
+	call := t.Call
+	t.Call = func(ctx context.Context, args map[string]any) (string, string) {
+		status, text := call(ctx, args)
+		L.Append(now(), "mcp", "uncovered", t.Name, "", map[string]any{"tool": t.Name, "args": args, "status": status}, 1)
+		return status, text
+	}
+	return t
 }
