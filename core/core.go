@@ -92,10 +92,11 @@ type Core struct {
 	Explain *explain.Explainer
 
 	lastSurprise float64
-	unseen       int       // surprises since the person last asked about them
-	presence     Presence  // the radar's last reading
-	settings     Settings  // her screens' settings (core/settings.go)
-	base         *Settings // the temperament's numbers from its file
+	unseen       int               // surprises since the person last asked about them
+	names        map[string]string // a map id (u2, l1) → the home's words for it ("living room ventilation")
+	presence     Presence          // the radar's last reading
+	settings     Settings          // her screens' settings (core/settings.go)
+	base         *Settings         // the temperament's numbers from its file
 	lastMinute   string
 	mood         *persona.Selector // Nina's temperament; nil without one
 	moodAt       time.Time
@@ -263,6 +264,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	for _, p := range c.Packages {
 		members = append(members, world.Member{Name: p, Manifest: filepath.Join(c.Root, "domains", p, "domain.yaml")})
 	}
+	k.names = mapNames(filepath.Join(c.Root, "world", "home.map.json"))
 	var err error
 	k.World, k.Report, err = world.Open(ctx, c.Log, world.Config{Map: filepath.Join(c.Root, "world", "home.map.json"),
 		Members: members, Code: c.Code, Every: c.CheckpointEvery, Now: c.Now})
@@ -338,11 +340,58 @@ func (k *Core) surprise(domain string, r map[string]any) {
 	}
 	k.mu.Unlock()
 	k.surprisesNow()
-	if mention {
-		if v := k.Voice(); v != nil {
+	what := k.surpriseWords(r)
+	if v := k.Voice(); v != nil && (mention || what != "") {
+		if what != "" { // a device that did not do what it was told (B01-C02): she must not say it did
+			v.Note("info", fmt.Sprintf("Something in the %s surprised you just now: %s. Do not say it did what was asked; "+
+				"say so in a few words when the moment is quiet, and if asked.", domain, what))
+		} else {
 			v.Note("info", fmt.Sprintf("Something in the %s surprised you just now (its rules did not expect it). Mention it in a few words when the moment is quiet; the person can ask what surprised you.", domain))
 		}
 	}
+}
+
+// surpriseWords: a world surprise on a device's variable in the home's words ("the living room
+// ventilation (power): commanded on, no reading after 15 s"), or "" (no device of the map).
+func (k *Core) surpriseWords(r map[string]any) string {
+	key, _ := r["key"].(string)
+	id, v, ok := strings.Cut(key, ".")
+	name := k.names[id]
+	if !ok || name == "" {
+		return ""
+	}
+	why, _ := r["why"].(string)
+	if why == "" {
+		why = "not what its rules expected"
+	}
+	return fmt.Sprintf("the %s (%s): %s", name, v, why)
+}
+
+// mapNames reads the home map's words: each device's or room's first word, by its id.
+func mapNames(path string) map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(b, &m) != nil {
+		return out
+	}
+	for _, sec := range m {
+		var items map[string]struct {
+			Words []string `json:"words"`
+		}
+		if json.Unmarshal(sec, &items) != nil {
+			continue
+		}
+		for id, it := range items {
+			if len(it.Words) > 0 {
+				out[id] = it.Words[0]
+			}
+		}
+	}
+	return out
 }
 
 // surprisesNow tells Nina's screen how many surprises the person has not heard about, and how
@@ -821,7 +870,11 @@ func (k *Core) WorldLines() []string {
 // Call is a card call (the voice's, a task's): the rules' outcome; one they answered done is the
 // person's habit, kept in the log (stream call) for "again" and "the usual".
 func (k *Core) Call(ctx context.Context, tool string, args map[string]any) metishome.Outcome {
+	from := k.Log.Last()
 	o := k.Home.Call(ctx, tool, args)
+	if o.Status == "done" && k.commanded(ctx, from) { // the house was told; a reading confirms it (B01-C02)
+		o.Text += " (Sent to the device: not confirmed until it reports back. Say it was asked, not that it runs.)"
+	}
 	if o.Status == "done" && tool != "home_habits" {
 		hc := habits.Call{Tool: tool, Args: args, At: k.Cfg.Now()}
 		k.Log.Append(hc.At, "call", strings.TrimPrefix(tool, "home_"), "", "", hc, 1)
@@ -830,6 +883,18 @@ func (k *Core) Call(ctx context.Context, tool string, args map[string]any) metis
 		}
 	}
 	return o
+}
+
+// commanded: whether the world took a device command since log row FROM (a call that switched something).
+func (k *Core) commanded(ctx context.Context, from int64) bool {
+	found := false
+	_ = k.Log.Read(ctx, from+1, func(e nlog.Event) error {
+		if e.Kind == "command" {
+			found = true
+		}
+		return nil
+	}, "world")
+	return found
 }
 
 // HomeTools are the home's cards as a task's tools.
