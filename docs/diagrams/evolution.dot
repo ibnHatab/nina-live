@@ -1,0 +1,15 @@
+// How the design evolved (dates from the docs and commits). Accent: today's runtime shape.
+digraph evolution {
+  graph [rankdir=TB, nodesep=0.3, ranksep=0.32, fontname="Helvetica", fontsize=11, bgcolor="white", pad=0.2];
+  node  [shape=box, style="rounded", fontname="Helvetica", fontsize=10, color="black", margin="0.14,0.06", width=4.6];
+  edge  [color="black", arrowsize=0.6];
+  a [label="11-21 · Three Streams (paper)\nFSTTM + Gemini Flash-Lite; CONVERSATION · ENVIRONMENT · REASONING\nentered as context entries, never turns; authority order"];
+  b [label="11-21..23 · metis-home beside the voice\nseparate process, ports 8768 (tools) · 8766 (reasoning stream)"];
+  c [label="11-24 · one process: cmd/nina\nevent log as the source; semantic world rebuilt from it"];
+  d [label="11-24 · one composition + pi as System 2\ndirector over specialists; TransformContext · Steer · FollowUp"];
+  e [label="11-25 · beliefs as levels (spec 16) · quantized port\nonly sure levels act; nothing said twice"];
+  f [label="11-26 · surprises → workspace · SITL in nina-narratives\nmetis-loop: case → pack → gates → ruling"];
+  g [label="11-27 · robustness: model chain + watchdog,\nfollow-up after silent tools, persona/deploy split", color="#0000aa", fontcolor="#0000aa"];
+  h [label="next · two-level reasoning as one system\nexternal domain catalog · live surprises · chat mining", color="#888888", fontcolor="#888888", style="rounded,dashed"];
+  a -> b -> c -> d -> e -> f -> g -> h;
+}

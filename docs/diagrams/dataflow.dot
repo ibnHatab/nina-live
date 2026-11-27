@@ -1,0 +1,45 @@
+// Data flow 1: how the LLMs, Metis and the semantic world are coupled in nina-live today (2026-11-27).
+// Colours: #0000aa = the coupling under discussion (accent); #888888 = planned or partial (dashed).
+digraph dataflow {
+  graph [rankdir=TB, nodesep=0.45, ranksep=0.5, fontname="Helvetica", fontsize=11, bgcolor="white", pad=0.2];
+  node  [shape=box, style="rounded", fontname="Helvetica", fontsize=11, color="black", margin="0.12,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, color="black", arrowsize=0.6];
+
+  person [label="person\n(voice, WhatsApp)", shape=ellipse];
+  subgraph cluster_s1 { label="System 1 · fsttm-live"; fontsize=10; color="#888888"; style="rounded,dashed";
+    ears  [label="ears\nVAD · wake word · transcriber"];
+    live  [label="Gemini Live\nvoice + mind"];
+  }
+  subgraph cluster_core { label="nina-live core · one process"; fontsize=10; color="black"; style="rounded";
+    log   [label="event log\nSQLite · every arrow is an event", shape=cylinder];
+    world [label="semantic world\nbeliefs → levels, edges", color="#0000aa"];
+    metis [label="Metis composition\ndirector + 11 specialists · 1 s beat", color="#0000aa"];
+    port  [label="quantized port\nnew value or confidence only"];
+    hosts [label="hosts\nagenda · timers · music · glow"];
+  }
+  subgraph cluster_s2 { label="System 2 · pi"; fontsize=10; color="#888888"; style="rounded,dashed";
+    pi    [label="pi task runner\nmodel chain · 45 s watchdog"];
+  }
+  ha    [label="Home Assistant\nREST · websocket · MCP", shape=box3d];
+
+  person -> ears  [label="speech"];
+  ears   -> live  [label="heard text"];
+  live   -> metis [label="home_<pkg>(intent)\none tool per package", color="#0000aa", fontcolor="#0000aa"];
+  live   -> pi    [label="delegate(goal)"];
+  person -> pi    [label="WhatsApp → quiet task", style=dashed];
+  metis  -> hosts [label="fired rule = command"];
+  hosts  -> ha    [label="service call"];
+  ha     -> log   [label="ha_state"];
+  log    -> world [label="apply"];
+  world  -> metis [label="level atoms\nwake members", color="#0000aa", fontcolor="#0000aa"];
+  metis  -> world [label="prediction\n(command)"];
+  metis  -> log   [label="reasoning · surprise"];
+  world  -> port  [label="projected lines"];
+  port   -> live  [label="Context (silent)\nNote by level", color="#0000aa", fontcolor="#0000aa"];
+  port   -> pi    [label="TransformContext\nHOME now", color="#0000aa", fontcolor="#0000aa"];
+  metis  -> pi    [label="Steer · FollowUp", color="#0000aa", fontcolor="#0000aa"];
+  pi     -> metis [label="home_<pkg> verbs"];
+  pi     -> ha    [label="MCP: assist, ha-mcp"];
+  pi     -> live  [label="result → NOTE"];
+  live   -> person[label="said"];
+}

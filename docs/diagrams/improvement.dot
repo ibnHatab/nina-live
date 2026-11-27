@@ -1,0 +1,39 @@
+// Data flow 2: the delayed self-improvement loop. Solid: built and exercised. Dashed grey: wired but not
+// yet producing, or planned. Counts as of 2026-11-27.
+digraph improvement {
+  graph [rankdir=TB, nodesep=0.4, ranksep=0.45, fontname="Helvetica", fontsize=11, bgcolor="white", pad=0.2];
+  node  [shape=box, style="rounded", fontname="Helvetica", fontsize=11, color="black", margin="0.12,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, color="black", arrowsize=0.6];
+
+  subgraph cluster_day { label="by day · deployed Nina"; fontsize=10; style="rounded"; color="black";
+    rt    [label="Metis runtime\n+ semantic world"];
+    conv  [label="conversations\ndialog stream · episodes"];
+  }
+  subgraph cluster_sim { label="nina-narratives · SITL"; fontsize=10; style="rounded"; color="#0000aa"; fontcolor="#0000aa";
+    nar   [label="narratives\nscenes, counterfactuals"];
+    sitl  [label="SITL run\nsame composition + world\nhidden truth, monitors"];
+  }
+  ws    [label=".metis/surprises\n64 in SITL · 0 live", shape=folder, color="#0000aa"];
+  subgraph cluster_night { label="by night · metis-loop (Claude Code / pi)"; fontsize=10; style="rounded"; color="black";
+    case  [label="case\nsurprise + trace"];
+    pack  [label="pack\ncandidate .llp"];
+    gates [label="gates\nlint · inert · identified"];
+    rule  [label="rulings\n2 accepted · 2 refused"];
+  }
+  human [label="person approves", shape=ellipse];
+  cat   [label="catalog commit\nimage.golden", color="#888888", fontcolor="#888888", style="rounded,dashed"];
+  mine  [label="mining\ncategorize, nohandler,\nconfusions", color="#888888", fontcolor="#888888", style="rounded,dashed"];
+
+  nar  -> sitl  [label="scenario.yaml"];
+  sitl -> ws    [label="finding", color="#0000aa", fontcolor="#0000aa"];
+  rt   -> ws    [label="OnSurprise → Drop\n(wired, none yet)", style=dashed, color="#888888", fontcolor="#888888"];
+  ws   -> case  [label="take"];
+  case -> pack  [label="propose"];
+  pack -> gates;
+  gates -> rule [label="verdict"];
+  rule -> human;
+  human -> cat  [label="not merged yet", style=dashed, color="#888888", fontcolor="#888888"];
+  cat  -> rt    [label="update.sh · replay", style=dashed, color="#888888", fontcolor="#888888"];
+  conv -> mine  [label="F7 (planned)", style=dashed, color="#888888", fontcolor="#888888"];
+  mine -> case  [style=dashed, color="#888888"];
+}

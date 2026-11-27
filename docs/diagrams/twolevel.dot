@@ -1,0 +1,29 @@
+// The two-level reasoning system (the user's proposal): the LLMs and the semantic world + Metis as one
+// reasoner. Downward: language becomes typed evidence and intent. Upward: beliefs and conclusions become
+// context the LLM must defer to. Authority: environment > reasoning > the LLM's own belief.
+digraph twolevel {
+  graph [rankdir=TB, nodesep=0.5, ranksep=0.7, fontname="Helvetica", fontsize=11, bgcolor="white", pad=0.2];
+  node  [shape=box, style="rounded", fontname="Helvetica", fontsize=11, color="black", margin="0.14,0.07"];
+  edge  [fontname="Helvetica", fontsize=9, color="black", arrowsize=0.6];
+
+  subgraph cluster_l1 { label="Level 1 · language (open-ended, fallible)"; fontsize=10; style="rounded"; color="black";
+    voice [label="Gemini Live\nconversation"];
+    task  [label="pi tasks\ndeliberation, tools"];
+  }
+  subgraph cluster_l2 { label="Level 2 · beliefs and rules (typed, certified)"; fontsize=10; style="rounded"; color="#0000aa"; fontcolor="#0000aa";
+    sem   [label="semantic world\ncategorical · log-odds · Kalman"];
+    rules [label="Metis rules\nlinear logic · outcomes with %% lines"];
+  }
+  voice -> rules [label="intent (verb, slots)"];
+  voice -> sem   [label="report: a person's word\nweak evidence"];
+  task  -> rules [label="verbs"];
+  sem   -> rules [label="level atoms · edges"];
+  rules -> sem   [label="command = prediction"];
+  rules -> voice [label="done | refused + reason", color="#0000aa", fontcolor="#0000aa"];
+  sem   -> voice [label="silent context\n(sure, likely, unsure)", color="#0000aa", fontcolor="#0000aa"];
+  rules -> task  [label="Steer · FollowUp", color="#0000aa", fontcolor="#0000aa"];
+  sem   -> task  [label="TransformContext", color="#0000aa", fontcolor="#0000aa"];
+  rules -> surprise [label="no rule / improbable"];
+  sem   -> surprise [label="evidence vs belief"];
+  surprise [label="surprise\n→ level 3: offline improvement", shape=note, color="#888888", fontcolor="#888888"];
+}
