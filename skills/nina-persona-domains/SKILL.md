@@ -1,9 +1,15 @@
 ---
 name: nina-persona-domains
-description: Add or change one of Nina's rule domains in nina-live's Metis catalog (catalog/domains/<pkg>: the .llp rules, intent.yaml verbs/slots/handles, domain.yaml, the Go host that performs the effects) and test it. Use when teaching Nina a new kind of request (an alarm, removing a list item, a new calendar or list), when the voice model routes a request to the wrong tool or the wrong slot, or when a tool reports success that did not happen.
+description: Add or change one of Nina's rule domains in her Metis catalog (nina-narratives devices/<pkg>, linked as nina-live catalog/domains/<pkg>: the .llp rules, intent.yaml verbs/slots/handles, domain.yaml, the Go host that performs the effects) and test it. Use when teaching Nina a new kind of request (an alarm, removing a list item, a new calendar or list), when the voice model routes a request to the wrong tool or the wrong slot, or when a tool reports success that did not happen.
 ---
 
 # Changing Nina's domains (the rules)
+
+**Where the rules live (since 2026-11-27, the redesign's step 2):** `catalog/domains` is a link to
+`../../nina-narratives/devices`: the rules are nina-narratives' and change there, on a branch, through its
+loop (`python3 sitl/regress.py`, and the real-Nina SITL `sitl/real.py gate`), never as a quick edit in nina-live.
+The Go hosts (`nina-live/<pkg>/`) stay here. A machine needs the nina-narratives clone beside nina-live
+(`scripts/persona-build.sh` makes it).
 
 Each domain is a Metis package in `catalog/domains/<pkg>/`, served as one composition
 (`catalog/domains/composition.yaml`: `specialists:`). Her voice model sees each package as a tool

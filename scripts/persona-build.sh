@@ -16,9 +16,12 @@ R=${REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}
 export PATH=/usr/local/go/bin:$PATH GOFLAGS=${GOFLAGS:--mod=mod}   # GOTOOLCHAIN as the machine has it: auto fetches the go.mod release where the installed Go is older (Pascal: 1.22)
 PULL=0; [ "${1:-}" = "--pull" ] && PULL=1
 
-# the persona's repos: nina-live itself, her voice, and Metis (the compiler, its runtime and agent)
-REPOS="nina-live fsttm-live perotheia-packages/metis-lang perotheia-packages/metis-loop
+# the persona's repos: nina-live itself, her rules (nina-narratives), her voice, and Metis (the compiler, its runtime and agent)
+REPOS="nina-live nina-narratives fsttm-live perotheia-packages/metis-lang perotheia-packages/metis-loop
        perotheia-packages/metis-agent perotheia-packages/metis-worlds"
+# her rules are nina-narratives' (catalog/domains links to ../../nina-narratives/devices since the redesign's
+# step 2): a machine installed before it gets the clone here
+[ -d "$R/nina-narratives/.git" ] || git clone -q https://github.com/ibnHatab/nina-narratives.git "$R/nina-narratives"
 moved=""
 if [ "$PULL" = 1 ]; then
   for d in $REPOS; do
