@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	fmobile "github.com/ibnHatab/fsttm-live/pkg/mobile"
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
+	fmobile "github.com/ibnHatab/fsttm-live/pkg/mobile"
 	"github.com/ibnHatab/nina-live/tasks"
 	"google.golang.org/genai"
 )
@@ -52,7 +52,7 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 	}
 	runner, err := tasks.New(tasks.Config{Provider: "google", Model: "gemini-3.8-flash", KeyFile: gkey, Fallbacks: fbs,
 		MaxTurns: 10, Timeout: 5 * time.Minute,
-		System:  string(char) + "\n\n# The task runner\n\n" + taskCharter,
+		System: string(char) + "\n\n# The task runner\n\n" + taskCharter,
 		Note: func(level, text string) {
 			fmt.Fprintf(os.Stderr, "nina: note %s: %s\n", level, text)
 			if d != nil {

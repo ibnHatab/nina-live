@@ -38,7 +38,10 @@ func piCheck(dir string) string {
 	calls := 0
 	r, err := tasks.New(tasks.Config{ModelValue: p.GetModel(), KeyFile: key, System: "proof",
 		Tools: []tasks.Tool{{Name: "clock", Description: "the time", Parameters: map[string]any{"type": "object"},
-			Call: func(context.Context, map[string]any) (string, string) { calls++; return "done", time.Now().Format(time.RFC3339) }}}})
+			Call: func(context.Context, map[string]any) (string, string) {
+				calls++
+				return "done", time.Now().Format(time.RFC3339)
+			}}}})
 	if err != nil {
 		return "pi: " + err.Error()
 	}
