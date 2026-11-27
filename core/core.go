@@ -284,9 +284,10 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		if hosts == nil {
 			hosts = map[string]metishome.HostSpec{}
 		}
-		hosts["persona"] = metishome.HostSpec{New: func() metishome.Host { return ph }, Outcomes: persona.Outcomes}
-		if c.Composed && !slices.Contains(c.Packages, "persona") {
-			c.Packages = append(slices.Clone(c.Packages), "persona")
+		// the temperament package (was persona: renamed for the narratives' persona member, the redesign's step 3)
+		hosts["temperament"] = metishome.HostSpec{New: func() metishome.Host { return ph }, Outcomes: persona.Outcomes}
+		if c.Composed && !slices.Contains(c.Packages, "temperament") {
+			c.Packages = append(slices.Clone(c.Packages), "temperament")
 		}
 	}
 	if hosts != nil {
