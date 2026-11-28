@@ -52,7 +52,8 @@ type Config struct {
 		CheckpointEvery int           `yaml:"checkpoint_every"`
 		CallTimeout     time.Duration `yaml:"call_timeout"`
 		Composed        bool          `yaml:"composed"`
-		Route           string        `yaml:"route"` // director: every card's intent through the director (the redesign's step 4); "" straight to the card
+		WorldBeat       time.Duration `yaml:"world_beat"` // the semantic world's own clock (0: the rules' beat)
+		Route           string        `yaml:"route"`      // director: every card's intent through the director (the redesign's step 4); "" straight to the card
 	} `yaml:"home"`
 	Dialogue string `yaml:"dialogue"`
 	// Persona is Nina's character, put before the voice's protocol and the task runner's charter
@@ -261,7 +262,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if b, err := os.ReadFile(expand(c.Persona)); err == nil && c.Persona != "" {
 		persona = string(b)
 	}
-	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed, RouteIntents: c.Home.Route == "director", Escalate: c.Tasks.Enabled && c.Tasks.Escalate,
+	cc := core.Config{Persona: persona, Agenda: ag, Music: mu, Glow: gl, Publish: b.Publish, Log: L, Root: root, Metisc: expand(c.Home.Metisc), Packages: c.Home.Packages, Composed: c.Home.Composed, RouteIntents: c.Home.Route == "director", WorldBeat: c.Home.WorldBeat, Escalate: c.Tasks.Enabled && c.Tasks.Escalate,
 		Device: b.Device, Code: code(), CheckpointEvery: c.Home.CheckpointEvery, CallTimeout: c.Home.CallTimeout,
 		Levels: c.Levels, Now: now}
 	if c.Tasks.Enabled {
@@ -469,7 +470,7 @@ func (a *App) Start(ctx context.Context) error {
 			}()
 		}
 	}
-	go logDialogue(ctx, d, L, k.Floor)
+	go logDialogue(ctx, d, L, k.Floor, k.Woke)
 	if err := d.StartPlugins(ctx); err != nil {
 		return err
 	}
@@ -588,7 +589,11 @@ func voiceTools(k *core.Core, reads []tasks.Tool, cards string) dialogue.Tools {
 	}
 	var decls []*genai.FunctionDeclaration
 	funcs := map[string]dialogue.ToolFunc{}
-	for _, t := range append(k.HomeTools(), reads...) {
+	home := k.HomeTools()
+	if rt := k.ReportTool(); rt != nil { // the cognition's report verbs (the redesign's W4)
+		home = append(home, *rt)
+	}
+	for _, t := range append(home, reads...) {
 		t := t
 		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
 		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
@@ -643,9 +648,10 @@ func voiceStrain(kind string, e map[string]any) {
 
 // logDialogue writes the dialogue's events to the log (stream dialog) and indexes what was
 // heard and said for recall.
-func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string)) {
+func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string), woke func()) {
 	ch, cancel := d.Subscribe()
 	defer cancel()
+	asleep := true // the voice logs wake for every line typed; a conversation opens only from her sleep
 	for {
 		select {
 		case <-ctx.Done():
@@ -659,6 +665,15 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			if kind == "floor" && floor != nil {
 				to, _ := e["to"].(string)
 				floor(to)
+			}
+			switch kind {
+			case "sleep":
+				asleep = true
+			case "wake":
+				if asleep && woke != nil { // a conversation opened: the cognition's floor
+					woke()
+				}
+				asleep = false
 			}
 			if kind == "interim" || kind == "said" || kind == "view" || kind == "" { // view: her screens' copy of her context lines
 				continue
