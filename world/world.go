@@ -16,7 +16,8 @@
 // user's choice, 2026-11-24: the snapshot, and the older state thrown away; the other streams, the
 // conversations among them, are kept whole). A rebuild restores the latest snapshot and applies
 // the events after it. A snapshot of another map or other members is not restored (another map
-// gives another world): the world then starts empty and its readings come back from the feed.
+// gives another world): the world then starts empty and its readings come back from the feed; the
+// taste and the schedule, which depend on no map, are kept.
 package world
 
 import (
@@ -193,7 +194,7 @@ func Open(ctx context.Context, l *nlog.Log, c Config) (*World, Report, error) {
 				}
 			}
 			if x.State != nil && h.RestoreTaste(x.State) == nil {
-				rep.Refused += " (the taste kept)"
+				rep.Refused += " (the taste and the schedule kept)"
 			}
 			w.Home = h
 		}
@@ -342,6 +343,12 @@ func key(ev semhome.Event) string {
 		return ev.ID + "." + ev.Var
 	case "conclude":
 		return ev.Member
+	case "schedule":
+		if ev.Sched != nil {
+			return ev.Sched.Owner + "/" + ev.Sched.Slot
+		}
+	case "unschedule":
+		return ev.Member + "/" + ev.ID
 	}
 	return ""
 }
@@ -349,4 +356,34 @@ func key(ev semhome.Event) string {
 func digest(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:8])
+}
+
+// Schedule is the world's schedule as OWNER writes it (its own entries; an owner is a member or a
+// part of Nina's that sets what is due when): every change an event, through Apply.
+func (w *World) Schedule(owner string) *Schedule { return &Schedule{w: w, owner: owner} }
+
+// Schedule is one owner's part of the world's schedule.
+type Schedule struct {
+	w     *World
+	owner string
+}
+
+// Set enters the owner's entry for its slot (its Owner is the owner's).
+func (s *Schedule) Set(e sw.Sched) error {
+	e.Owner = s.owner
+	_, err := s.w.Apply(semhome.Event{At: s.w.now(), Kind: "schedule", Sched: &e})
+	return err
+}
+
+// Cancel takes the owner's entry for the slot off.
+func (s *Schedule) Cancel(slot string) error {
+	_, err := s.w.Apply(semhome.Event{At: s.w.now(), Kind: "unschedule", Member: s.owner, ID: slot})
+	return err
+}
+
+// Entries are the owner's entries now.
+func (s *Schedule) Entries() []sw.Sched {
+	s.w.Home.W.Lock()
+	defer s.w.Home.W.Unlock()
+	return s.w.Home.W.Sched.Of(s.owner)
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/ibnHatab/nina-live/music"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/taste"
+	"github.com/ibnHatab/nina-live/timers"
 	"github.com/ibnHatab/nina-live/world"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
@@ -450,6 +451,62 @@ func TestATimerOutlivesARestart(t *testing.T) {
 	homeCall(t, k, "home_timers", map[string]any{"intent": "CANCEL"})
 	waitHeard(t, v, "I cancel the oven")
 	waitHeard(t, v, "timers: none set")
+}
+
+// TestTheTimesAreTheWorlds: a timer that comes back is the world's periodic entry, rung at each of
+// its firings until cancelled; the character's routines are daily entries of the world's schedule,
+// and a routine's firing turns the home to its mood (W5).
+func TestTheTimesAreTheWorlds(t *testing.T) {
+	r := newRig(t, tasks.All)
+	sched := func(owner, slot string) (sw.Sched, bool) {
+		r.k.World.Home.W.Lock()
+		defer r.k.World.Home.W.Unlock()
+		return r.k.World.Home.W.Sched.Get(owner, slot)
+	}
+	for m, c := range map[string]string{"sleep": "0 22 * * *", "wake": "0 7 * * *"} {
+		if e, ok := sched(routineOwner, m); !ok || e.Cron != c {
+			t.Fatalf("the %s routine: %+v %v", m, e, ok)
+		}
+	}
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "REPEAT", "minutes": 0.01, "subject": "stretch"})
+	waitHeard(t, r.v, "Time's up: stretch (every")
+	var slot string
+	for i := 0; i < 50 && slot == ""; i++ {
+		r.k.World.Home.W.Lock()
+		for _, e := range r.k.World.Home.W.Sched.Of(timers.Owner) {
+			if e.Subject == "stretch" && e.Fired >= 2 {
+				slot = e.Slot
+			}
+		}
+		r.k.World.Home.W.Unlock()
+		time.Sleep(100 * time.Millisecond)
+	}
+	if slot == "" {
+		t.Fatal("the entry that comes back did not fire twice")
+	}
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "CANCEL"})
+	waitHeard(t, r.v, "which came back")
+	time.Sleep(300 * time.Millisecond)
+	if _, ok := sched(timers.Owner, slot); ok {
+		t.Fatal("cancelled, still in the world's schedule")
+	}
+	r.k.due(sw.Sched{Owner: routineOwner, Slot: "wake"})
+	for i := 0; ; i++ {
+		n := 0
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+			if e.Kind == "wake" {
+				n++
+			}
+			return nil
+		}, "routine")
+		if n > 0 {
+			break
+		}
+		if i > 50 {
+			t.Fatal("the wake routine's firing turned nothing")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // TestNinaWritesHerOwnCalendarAndYourTasks: an event goes on Nina's calendar with its time from the

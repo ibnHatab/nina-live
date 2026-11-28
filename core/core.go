@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -117,7 +118,6 @@ type Core struct {
 	moodAct      string
 	moodState    persona.State
 	Character    *taste.Character // the home's character (its moods, its routines)
-	routineDay   map[string]string
 	Report       world.Report
 
 	mu    sync.Mutex
@@ -320,6 +320,11 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		c.Log.Append(c.Now(), "sys", "replay_mismatch", "", "", k.Report, 1)
 	}
 	k.Taste.Home, k.Taste.Apply = k.World.Home, k.World.Apply
+	if k.Timers != nil { // its times are the world's schedule (W5)
+		if err := k.Timers.Attach(k.World.Schedule(timers.Owner)); err != nil {
+			return nil, fmt.Errorf("the timers' schedule: %w", err)
+		}
+	}
 	k.Home, err = metishome.Open(metishome.Options{Root: c.Root, Packages: c.Packages, Metisc: c.Metisc,
 		Sem: k.World.Home, Apply: k.World.Apply, Device: c.Device, Composed: c.Composed, RouteIntents: c.RouteIntents, OwnClock: c.WorldBeat > 0, Records: c.Records, Hosts: hosts,
 		OnSurprise:  func(domain string, r map[string]any) { k.surprise(domain, r) },
@@ -330,12 +335,18 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 	if err := k.loadCharacter(ctx); err != nil {
 		return nil, err
 	}
+	if err := k.scheduleRoutines(); err != nil {
+		return nil, err
+	}
 	k.World.OnOut = func(e semhome.Event, out semhome.Out) {
 		for _, s := range out.Surprises {
 			k.surprise("world", map[string]any{"kind": s.Kind, "key": s.Key, "why": s.Why})
 		}
 		if e.Kind == "settle" {
 			k.project(out.Projected)
+			for _, d := range out.Due {
+				k.due(d)
+			}
 		}
 	}
 	if c.Tasks != nil {
@@ -569,36 +580,66 @@ func (k *Core) Mood() persona.State {
 	return k.moodState
 }
 
-// routines turn the home to a mood at the character's times (bedtime: sleep; morning: wake), once a
-// day each, as a person would ask the scenes; logged as a routine (stream routine), never as the
-// person's habit.
-func (k *Core) routines() {
-	if k.Character == nil || len(k.Character.Routine) == 0 {
-		return
-	}
-	now := time.Unix(int64(k.Cfg.Now()), 0)
-	hm, day := now.Format("15:04"), now.Format("2006-01-02")
-	k.mu.Lock()
-	if k.routineDay == nil {
-		k.routineDay = map[string]string{}
-	}
-	var due []string
-	for m, at := range k.Character.Routine {
-		if at == hm && k.routineDay[m] != day {
-			k.routineDay[m] = day
-			due = append(due, m)
+// routineOwner is the character's routines' name in the world's schedule.
+const routineOwner = "routine"
+
+// scheduleRoutines makes the world's schedule hold the character's routines (bedtime: sleep;
+// morning: wake), each a daily entry at its time (slot: the mood), and nothing else of theirs.
+func (k *Core) scheduleRoutines() error {
+	s := k.World.Schedule(routineOwner)
+	want := map[string]string{}
+	if k.Character != nil {
+		for m, at := range k.Character.Routine {
+			c, err := timers.CronOf(at, "daily")
+			if err != nil {
+				return fmt.Errorf("the character's %s routine: %w", m, err)
+			}
+			want[m] = c
 		}
 	}
-	k.mu.Unlock()
-	for _, m := range due {
-		m := m
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), k.Cfg.CallTimeout)
-			defer cancel()
-			o := k.Home.Call(ctx, "home_scenes", map[string]any{"intent": "MOOD", "mood": m})
-			k.Log.Append(k.Cfg.Now(), "routine", m, "", "", map[string]string{"status": o.Status, "text": o.Text}, 1)
-		}()
+	have := map[string]sw.Sched{}
+	for _, e := range s.Entries() {
+		have[e.Slot] = e
 	}
+	for _, m := range slices.Sorted(maps.Keys(want)) {
+		if e, ok := have[m]; !ok || e.Cron != want[m] {
+			if err := s.Set(sw.Sched{Slot: m, Subject: "the " + m + " routine", Cron: want[m]}); err != nil {
+				return err
+			}
+		}
+	}
+	for _, m := range slices.Sorted(maps.Keys(have)) {
+		if _, ok := want[m]; !ok {
+			if err := s.Cancel(m); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// due is a firing of the world's schedule, to its owner: a timer's to the timers' host (due(T) at its
+// next beat), a routine's to the home.
+func (k *Core) due(d sw.Sched) {
+	switch d.Owner {
+	case timers.Owner:
+		if k.Timers != nil {
+			k.Timers.Due(d.Slot)
+		}
+	case routineOwner:
+		k.routine(d.Slot)
+	}
+}
+
+// routine turns the home to the routine's mood as a person would ask the scenes (through the
+// director, with its intent route); logged as a routine (stream routine), never as the person's habit.
+func (k *Core) routine(m string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), k.Cfg.CallTimeout)
+		defer cancel()
+		o := k.Home.Call(ctx, "home_scenes", map[string]any{"intent": "MOOD", "mood": m})
+		k.Log.Append(k.Cfg.Now(), "routine", m, "", "", map[string]string{"status": o.Status, "text": o.Text}, 1)
+	}()
 }
 
 // ExplainTool is "explain yourself" as a tool: the voice's and the tasks'.
@@ -812,7 +853,6 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 			return
 		case <-tk.C:
 			k.Home.Beat()
-			k.routines()
 			k.clock()
 			k.temperament()
 		}
