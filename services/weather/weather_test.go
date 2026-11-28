@@ -42,7 +42,7 @@ func TestMetNoInHomeAssistantsWords(t *testing.T) {
 		t.Fatalf("daily: %s", f)
 	}
 	l, _ := s.Line(context.Background())
-	if l != "the weather: rainy, 4 °C" {
+	if l != "weather (here): rainy, 4 °C" {
 		t.Fatalf("now: %s", l)
 	}
 	if !strings.Contains(agent, "nina-live") {

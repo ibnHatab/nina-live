@@ -174,7 +174,7 @@ func (s *Source) Line(ctx context.Context) (string, error) {
 			p = q
 		}
 	}
-	return fmt.Sprintf("the weather: %s, %.0f °C", strings.ReplaceAll(Condition(p.Sym), "-", " "), p.Temp), nil
+	return fmt.Sprintf("weather (here): %s, %.0f °C", strings.ReplaceAll(Condition(p.Sym), "-", " "), p.Temp), nil
 }
 
 // Forecast is the next days (kind daily) or hours (hourly), in the words of Home Assistant's forecast

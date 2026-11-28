@@ -57,10 +57,11 @@ func Direct(c Config, b Backends) (Backends, error) {
 	if s.Photos == "google" {
 		b.Albums, b.Photos = g.AlbumTitles, g
 	}
+	o := &observer{base: b.Observed, poke: make(chan struct{}, 1)}
 	if s.Agenda == "google" {
-		b.Agenda = g
+		b.Agenda = poked{g, o}
 		r.google, r.cals = g, s.Google.Calendars
-		lines = append(lines, r.agendaLines)
+		lines = append(lines, r.agendaLines, r.listLines)
 	}
 	if s.Weather != nil {
 		r.weather = &weather.Source{Lat: s.Weather.Lat, Lon: s.Weather.Lon, URL: s.Weather.URL}
@@ -70,7 +71,7 @@ func Direct(c Config, b Backends) (Backends, error) {
 		return b, nil
 	}
 	b.Reader = r
-	o := &observer{parts: lines, base: b.Observed}
+	o.parts = lines
 	b.Observed = o.Lines
 	watch := b.Watch
 	b.Watch = func(ctx context.Context, apply func(semhome.Event) (semhome.Out, error), line func(key, text string)) {
@@ -162,16 +163,37 @@ type line struct{ key, text string }
 
 func (m *mixed) agendaLines(ctx context.Context) []line {
 	var out []line
-	for id, name := range m.cals {
-		evs, err := m.google.Events(ctx, id, 36*time.Hour, 5)
+	for id, name := range m.cals { // as Home Assistant's observer words a calendar (acasa hass Observer.Line)
+		evs, err := m.google.Events(ctx, id, 7*24*time.Hour, 5)
 		if err != nil {
 			continue
 		}
-		t := name + ": nothing in the next day and a half"
+		t := name + ": nothing in the coming week"
 		if len(evs) > 0 {
-			t = name + ": " + strings.Join(evs, "; ")
+			t = name + ", the coming week: " + strings.Join(evs, "; ")
 		}
 		out = append(out, line{"calendar:" + id, t})
+	}
+	return out
+}
+
+// listLines: every task list with its open items, as Home Assistant's observer words a to-do list.
+func (m *mixed) listLines(ctx context.Context) []line {
+	ls, err := m.google.TaskLists(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []line
+	for _, l := range ls {
+		items, err := m.google.Items(ctx, l.ID)
+		if err != nil {
+			continue
+		}
+		t := l.Title + ": empty"
+		if len(items) > 0 {
+			t = l.Title + ": " + strings.Join(items, ", ")
+		}
+		out = append(out, line{"list:" + l.ID, t})
 	}
 	return out
 }
@@ -181,6 +203,9 @@ func (m *mixed) weatherLines(ctx context.Context) []line {
 	if err != nil {
 		return nil
 	}
+	if f, err := m.weather.Forecast(ctx, "daily", 3); err == nil && f != "" { // the next days too, as Home Assistant's line
+		l += "; " + f
+	}
 	return []line{{"weather", l}}
 }
 
@@ -189,8 +214,35 @@ func (m *mixed) weatherLines(ctx context.Context) []line {
 type observer struct {
 	parts []func(ctx context.Context) []line
 	base  func() []string
+	poke  chan struct{} // a write to the agenda: read again now (Home Assistant's line followed the list's state)
 	mu    sync.Mutex
 	now   map[string]string
+}
+
+// poked is the agenda's backend whose writes make the observer read again at once.
+type poked struct {
+	*google.Client
+	o *observer
+}
+
+func (p poked) after(err error) error {
+	if err == nil {
+		select {
+		case p.o.poke <- struct{}{}:
+		default:
+		}
+	}
+	return err
+}
+
+func (p poked) CreateEvent(ctx context.Context, id, summary, start, end, note string) error {
+	return p.after(p.Client.CreateEvent(ctx, id, summary, start, end, note))
+}
+func (p poked) AddItem(ctx context.Context, id, summary, due, note string) error {
+	return p.after(p.Client.AddItem(ctx, id, summary, due, note))
+}
+func (p poked) RemoveItem(ctx context.Context, id, item string) error {
+	return p.after(p.Client.RemoveItem(ctx, id, item))
 }
 
 func (o *observer) Lines() []string {
@@ -231,6 +283,7 @@ func (o *observer) Run(ctx context.Context, changed func(key, text string)) {
 		case <-ctx.Done():
 			return
 		case <-tk.C:
+		case <-o.poke:
 		}
 	}
 }
