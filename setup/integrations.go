@@ -35,9 +35,9 @@ func Integrations() []Integration {
 			Steps: []Step{
 				{ID: "have", Title: "Your Google Cloud project", Shortcut: "I have one already",
 					URL:  "https://console.cloud.google.com/projectselector2/home/dashboard",
-					Text: "Already made a project for Nina, with its APIs, consent screen and published app? Say so. Else: Next, and we make one.",
-					Say: "Her Google services live in one Google Cloud project of yours. If you made one for me before, with its APIs enabled and its consent screen published, " +
-						"press I have one already. If not, press Next and I will walk you through it: it takes about five minutes."},
+					Text: "Made a project for Nina before (APIs, consent screen, published)? I have one already. If not: Done, and we make one.",
+					Say: "My Google services live in one Google Cloud project of yours. If you made one for me before, " +
+						"press I have one already. If not, press Done and I will walk you through it: about five minutes."},
 				{ID: "create", Title: "Make the project", URL: "https://console.cloud.google.com/projectcreate",
 					Text: "Name it Nina, Create, and make sure it is the project selected at the top.",
 					Say: "On Google Cloud's page, sign in with your account. If it asks, accept its terms of service. " +
@@ -66,8 +66,7 @@ func Integrations() []Integration {
 					Check: checkClient, Save: saveClient},
 				{ID: "signin", Title: "Sign in with Google", Input: "signin",
 					Text: "Sign in: allow every box. If it says the app is not verified: Advanced, Go to Nina.",
-					Say: "Press Sign in with Google. On Google's page choose your account and allow every box. Google may say the app is not verified, because it is your own: " +
-						"press Advanced, then Go to Nina. When it says you are signed in, come back here.",
+					Say: "Press Sign in with Google, choose your account and allow every box. If Google says the app is not verified, press Advanced, then Go to Nina.",
 					Check: checkGoogle},
 			}},
 		{ID: "youtube", Title: "YouTube key", Why: "videos found by search on her screen", Needs: []string{"google_project"}, Optional: true,
@@ -129,7 +128,7 @@ func checkWhatsApp(_ context.Context, s *Setup, _ string) Result {
 		return Result{Detail: "WhatsApp is not enabled in her config (whatsapp.enabled)"}
 	}
 	if w.Linked() {
-		return Result{OK: true, Detail: "her device is linked"}
+		return Result{OK: true, Detail: "my device is linked"}
 	}
 	return Result{Detail: "not linked yet"}
 }

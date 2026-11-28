@@ -266,7 +266,7 @@ func answers(given bool, what string) string {
 	if given {
 		return "the new " + what + " works"
 	}
-	return "the " + what + " she has works"
+	return "the " + what + " I have works"
 }
 
 func saveKey(path func(Paths) string, env string) func(s *Setup, v string) error {

@@ -32,6 +32,7 @@ type Result struct {
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"` // what was found (never a secret)
 	Hint   string `json:"hint,omitempty"`   // what to do about it (said when it fails)
+	Say    string `json:"-"`                // what she says of it, when the detail is too technical to read out
 }
 
 // Step is one thing the person does.
@@ -274,7 +275,11 @@ func (s *Setup) enter(ctx context.Context) {
 			if step.Input == "secret" || step.Input == "client" {
 				next = "Press Next to keep it, or paste a new one to replace it."
 			}
-			s.say(sentence(r.Detail) + " " + next)
+			said := r.Say
+			if said == "" {
+				said = sentence(r.Detail)
+			}
+			s.say(said + " " + next)
 			return
 		}
 	}
@@ -329,9 +334,11 @@ func (s *Setup) value(ctx context.Context, in *Integration, n int, v string) err
 			s.mu.Unlock()
 			return err
 		}
-		s.mu.Lock()
-		s.restart = true
-		s.mu.Unlock()
+		if step.Input == "secret" { // a key: read at her start (an OAuth client is read by the sign-in, now)
+			s.mu.Lock()
+			s.restart = true
+			s.mu.Unlock()
+		}
 		s.log("setup", map[string]any{"verb": "saved", "integration": in.ID, "step": step.ID})
 	}
 	return nil

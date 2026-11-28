@@ -149,11 +149,11 @@ func TestTheSunnyDay(t *testing.T) {
 	if cur["url"] != "https://aistudio.google.com/apikey" || cur["input"] != "secret" {
 		t.Errorf("the step: %v", cur)
 	}
-	if r := a["result"].(map[string]any); r["ok"] != true || !strings.Contains(r["detail"].(string), "she has works") {
+	if r := a["result"].(map[string]any); r["ok"] != true || !strings.Contains(r["detail"].(string), "I have works") {
 		t.Errorf("the key she has, checked on entering: %v", a["result"])
 	}
 	// the key she has works: that is what she says, not how to make one (claudia's test, 2026-11-28)
-	if len(*said) != 1 || (*said)[0] != "The Gemini key she has works. Press Next to keep it, or paste a new one to replace it." {
+	if len(*said) != 1 || (*said)[0] != "The Gemini key I have works. Press Next to keep it, or paste a new one to replace it." {
 		t.Errorf("narrated: %q", *said)
 	}
 	do(t, s, "setup_next", "")
@@ -263,6 +263,9 @@ func TestTheGoogleSignIn(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "google-oauth-client.json")); string(b) != cl {
 		t.Errorf("the client not kept: %q", b)
 	}
+	if view(s)["restart"] != false { // a client is read by the sign-in, not at her start (claudia's test)
+		t.Error("restart offered for an OAuth client")
+	}
 	do(t, s, "setup_next", "")
 	do(t, s, "setup_signin", "")
 	si := active(s)["signin"].(map[string]any)
@@ -286,7 +289,7 @@ func TestTheGoogleSignIn(t *testing.T) {
 	if json.Unmarshal(b, &tok); tok["refresh_token"] != "the-refresh" || tok["client_id"] != "id-1.apps" {
 		t.Errorf("the token: %v", tok)
 	}
-	if r := active(s)["result"].(map[string]any); r["ok"] != true || r["detail"] != "her Google account works: calendar, tasks, photos" {
+	if r := active(s)["result"].(map[string]any); r["ok"] != true || r["detail"] != "my Google account works: calendar, tasks, photos" {
 		t.Errorf("signed in: %v", r)
 	}
 	if !strings.Contains((*said)[len(*said)-1], "signed in") {

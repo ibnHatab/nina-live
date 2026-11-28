@@ -117,7 +117,7 @@ func checkClient(_ context.Context, s *Setup, value string) Result {
 		}
 		return Result{Detail: err.Error(), Hint: "That is not the client's file. On the client's page, press Download JSON, open the file, and paste all of it."}
 	}
-	r := Result{OK: true, Detail: "an OAuth client (" + c.kind + " app)"}
+	r := Result{OK: true, Detail: "an OAuth client (" + c.kind + " app)", Say: "I found your OAuth client."}
 	if c.kind == "web" {
 		ok := false
 		for _, u := range c.Redirects {
@@ -126,6 +126,7 @@ func checkClient(_ context.Context, s *Setup, value string) Result {
 		r.Detail += ", redirect " + s.redirect()
 		if !ok && len(c.Redirects) > 0 {
 			r.Detail += " not among its redirects (as downloaded; add it if Google says redirect_uri_mismatch)"
+			r.Say = "I found your OAuth client. Google will need localhost, port 8765, among its redirects: add it on the client's page."
 		}
 	}
 	return r
@@ -222,7 +223,7 @@ func (s *Setup) signedIn(c client, si *signin, q url.Values) string {
 	s.log("setup", map[string]any{"verb": "signed_in", "ok": r.OK, "detail": r.Detail})
 	s.changed()
 	if r.OK {
-		s.say("You are signed in. " + r.Detail + ". Come back to my settings and press Next.")
+		s.say("You are signed in, and your calendar, tasks and photos answer me. Come back to my settings and press Next.")
 		return "Signed in: " + r.Detail + "."
 	}
 	if r.Hint != "" {
@@ -334,7 +335,7 @@ func (s *Setup) googleAPIs(ctx context.Context, t google.Token) Result {
 		}
 		return r
 	}
-	return Result{OK: true, Detail: "her Google account works: " + strings.Join(ok, ", ")}
+	return Result{OK: true, Detail: "my Google account works: " + strings.Join(ok, ", ")}
 }
 
 func htmlEscape(s string) string {
