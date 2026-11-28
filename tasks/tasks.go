@@ -831,3 +831,10 @@ func (r *Runner) ask1(ctx context.Context, m alt, system, prompt string, retries
 	}
 	return out, err
 }
+
+// Running is how many tasks run now (the escalate package's load: the redesign's step 6).
+func (r *Runner) Running() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.live)
+}

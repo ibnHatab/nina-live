@@ -36,6 +36,7 @@ built=$(grep -o '^image home v-[0-9a-f]*' <<<"$out" | grep -o 'v-[0-9a-f]*' | he
 # the images it superseded go: nina refuses to start with two in build/ (pero, 2026-11-26)
 for d in catalog/domains/build/home.image.v-*; do [ "$d" = "catalog/domains/build/home.image.$built" ] || rm -rf "$d"; done
 mkdir -p bin
-go build -o bin/nina ./cmd/nina
+go build ./...                                    # the persona compiles (app/: a deployment's cmd/nina runs it, acasa's at home)
+rm -f bin/nina                                    # no binary of a home here since the redesign's step 1 (acasa builds bin/nina)
 go build -o bin/nina-whatsapp ./cmd/nina-whatsapp # her WhatsApp, linked by hand (whatsapp/)
-echo "built → bin/nina, bin/nina-whatsapp"
+echo "built → the image, bin/nina-whatsapp (bin/nina: acasa's live/build.sh)"

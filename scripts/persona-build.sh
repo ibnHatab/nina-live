@@ -16,9 +16,12 @@ R=${REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}
 export PATH=/usr/local/go/bin:$PATH GOFLAGS=${GOFLAGS:--mod=mod}   # GOTOOLCHAIN as the machine has it: auto fetches the go.mod release where the installed Go is older (Pascal: 1.22)
 PULL=0; [ "${1:-}" = "--pull" ] && PULL=1
 
-# the persona's repos: nina-live itself, her voice, and Metis (the compiler, its runtime and agent)
-REPOS="nina-live fsttm-live perotheia-packages/metis-lang perotheia-packages/metis-loop
+# the persona's repos: nina-live itself, her rules (nina-narratives), her voice, and Metis (the compiler, its runtime and agent)
+REPOS="nina-live nina-narratives fsttm-live perotheia-packages/metis-lang perotheia-packages/metis-loop
        perotheia-packages/metis-agent perotheia-packages/metis-worlds"
+# her rules are nina-narratives' (catalog/domains links to ../../nina-narratives/devices since the redesign's
+# step 2): a machine installed before it gets the clone here
+[ -d "$R/nina-narratives/.git" ] || git clone -q https://github.com/ibnHatab/nina-narratives.git "$R/nina-narratives"
 moved=""
 if [ "$PULL" = 1 ]; then
   for d in $REPOS; do
@@ -33,13 +36,13 @@ fi
 
 M=$R/perotheia-packages/metis-lang/src
 if [ -z "${METISC:-}" ]; then
-  if [ ! -x "$M/metisc" ] || [[ "$moved" == *metis-lang* ]]; then
-    echo "== metisc"; make -s -C "$M" metisc
-  fi
+  # always make: incremental (a no-op when metisc is newer than its sources), and a metis-lang pulled some other
+  # way (not --pull here) gets its compiler too (2026-11-28: a stale metisc refused the composition's person: kinds)
+  echo "== metisc"; make -s -C "$M" metisc
   METISC=$M/metisc
 fi
 
-echo "== nina (the composition's image, bin/nina, bin/nina-whatsapp)"
+echo "== nina (the composition's image, the persona compiled, bin/nina-whatsapp; bin/nina is the deployment's: acasa live/build.sh)"
 (cd "$R/nina-live" && METISC="$METISC" ./build.sh)
 echo "== the radar (fsttm-live cmd/radar: her presence sensor)"
 (cd "$R/fsttm-live" && go build -o bin/radar ./cmd/radar)

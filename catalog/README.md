@@ -9,6 +9,15 @@ What the home is for: the rules decide what happens to a device and say why; Hom
 the pipe to the devices; the conversation (FSTTM with Gemini, the `cloud-llm` branch) gets the home's
 state as its ENVIRONMENT stream and the rules' outcomes as its REASONING stream.
 
+## Where things are (2026-11-27, the redesign's step 2)
+
+`domains/` is a link to `../../nina-narratives/devices`: the rules are nina-narratives' (changed there,
+through its loop and the real-Nina SITL). Here stay her character (`character.yaml`), her temperament
+(`persona.yaml`) and the home's map (`world/home.map.json`, `world/gen_map.py`, which writes the map's
+generated files into the linked domains). The Python world host (`world/home_host.py`), its tests and the
+NUC's unit are gone: Nina's runtime is Go (metis-agent's metishome). The layout below is the history of
+these packages.
+
 ## Layout
 
 | path | what |

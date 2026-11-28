@@ -6,6 +6,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -69,6 +70,8 @@ func (d device) Do(kind, role, op string, value any) bool {
 }
 
 // rigAgenda: the agenda host of the next rig (nil: the default, which writes nothing)
+var rigEscalate bool
+
 var rigAgenda *agenda.Host
 
 // rigMusic, rigLog: the music host and the log file of the next rig (zero: the defaults)
@@ -113,8 +116,11 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 	ctx, stop := context.WithCancel(context.Background())
 	r.stop = stop
 	t.Cleanup(stop)
+	// NINA_TEST_ROUTE=1: every card's intent through the director (the redesign's step 4): the whole suite again
 	cfg := Config{Log: L, Root: root, Metisc: os.Getenv("METISC"), Composed: true, Device: device{&r.k},
-		Code: "test", CheckpointEvery: 5,
+		RouteIntents: os.Getenv("NINA_TEST_ROUTE") != "",
+		Escalate:     rigEscalate,
+		Code:         "test", CheckpointEvery: 5,
 		Tasks: &tasks.Config{ModelValue: r.faux.GetModel(), KeyFile: key, System: "test", Mech: mech, MaxTurns: 8,
 			Timeout: 30 * time.Second, Tools: extra}}
 	if rigAgenda != nil {
@@ -444,7 +450,7 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 	var mu sync.Mutex
 	var calls []map[string]any
 	fail := false
-	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: agenda.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if fail {
@@ -456,7 +462,7 @@ func TestNinaWritesHerOwnCalendarAndYourTasks(t *testing.T) {
 		}
 		calls = append(calls, d)
 		return nil
-	}}
+	}}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "EVENT", "summary": "Dentist", "due": "2026-11-25T10:00:00", "minutes": 60}) // the time in due (pero's voice)
@@ -501,7 +507,7 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 	var played []string
 	var vols []float64
 	fake := &music.Host{KeepAfter: 700 * time.Millisecond, SkipWithin: 300 * time.Millisecond,
-		Call: func(_ context.Context, domain, service string, data map[string]any) error {
+		Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
 			switch service {
@@ -511,7 +517,7 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 				vols = append(vols, data["volume_level"].(float64))
 			}
 			return nil
-		},
+		}},
 		Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 			if tag == "" {
 				tag = "words-" + strings.ReplaceAll(words, " ", "-")
@@ -600,17 +606,17 @@ func TestTheMusicLearnsThePerson(t *testing.T) {
 func TestAgainAndTheUsual(t *testing.T) {
 	var mu sync.Mutex
 	var played []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if service == "play_media" {
 			played = append(played, data["media_content_id"].(string))
 		}
 		return nil
-	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+	}}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
 	}}
-	rigAgenda = &agenda.Host{Entities: agenda.Default, Call: func(context.Context, string, string, map[string]any) error { return nil }}
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: agenda.HA{Call: func(context.Context, string, string, map[string]any) error { return nil }}}
 	defer func() { rigMusic, rigAgenda = nil, nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_habits", map[string]any{"intent": "USUAL"})
@@ -650,14 +656,14 @@ func TestAgainAndTheUsual(t *testing.T) {
 func TestTheHomesCharacterChoosesFirst(t *testing.T) {
 	var mu sync.Mutex
 	var played []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if service == "play_media" {
 			played = append(played, data["media_content_id"].(string))
 		}
 		return nil
-	}}
+	}}}
 	defer func() { rigMusic = nil }()
 	r := newRig(t, tasks.All)
 	for _, g := range []string{"news", "lofi", "jazz", "ambient", "rock"} {
@@ -747,7 +753,7 @@ func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
 	var played []string
 	var vols []float64
 	var said []string
-	rigMusic = &music.Host{Call: func(_ context.Context, domain, service string, data map[string]any) error {
+	rigMusic = &music.Host{Backend: music.HA{Call: func(_ context.Context, domain, service string, data map[string]any) error {
 		mu.Lock()
 		defer mu.Unlock()
 		switch service {
@@ -757,7 +763,7 @@ func TestAMoodReachesTheMusicAndTheLightTogether(t *testing.T) {
 			vols = append(vols, data["volume_level"].(float64))
 		}
 		return nil
-	}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
+	}}, Search: func(_ context.Context, tag, words string) ([]music.Station, error) {
 		return []music.Station{{Name: tag + " FM", URL: "http://radio/" + tag}}, nil
 	}}
 	rigGlow = &glow.Host{FadeStep: 200 * time.Millisecond, Say: func(_ context.Context, cmds []string) error {
@@ -902,7 +908,7 @@ func TestAnAPIErrorIsHerStrain(t *testing.T) {
 func TestNinaTakesItemsOffLists(t *testing.T) {
 	var mu sync.Mutex
 	var calls []map[string]any
-	rigAgenda = &agenda.Host{Entities: agenda.Default,
+	rigAgenda = &agenda.Host{Entities: agenda.Default, Backend: listed{agenda.HA{
 		Call: func(_ context.Context, domain, service string, data map[string]any) error {
 			mu.Lock()
 			defer mu.Unlock()
@@ -915,10 +921,9 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 			}
 			calls = append(calls, d)
 			return nil
-		},
-		Items: func(_ context.Context, entity string) ([]string, error) {
-			return map[string][]string{"todo.my_tasks": {"Call the plumber", "Buy batteries"}, "todo.shopping_list": {"Milk"}}[entity], nil
-		}}
+		}}, func(_ context.Context, entity string) ([]string, error) {
+		return map[string][]string{"todo.my_tasks": {"Call the plumber", "Buy batteries"}, "todo.shopping_list": {"Milk"}}[entity], nil
+	}}}
 	defer func() { rigAgenda = nil }()
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_agenda", map[string]any{"intent": "TODO", "summary": "Milk", "calendar": "shopping"}) // the voice put the list there (pero)
@@ -945,5 +950,88 @@ func TestNinaTakesItemsOffLists(t *testing.T) {
 	}
 	if c := calls[2]; c["service"] != "todo.remove_item" || c["entity_id"] != "todo.shopping_list" || c["item"] != "Milk" {
 		t.Fatalf("off the shopping list: %v", c)
+	}
+}
+
+// listed is a Home Assistant agenda whose lists' items are given (the test's).
+type listed struct {
+	agenda.HA
+	items func(context.Context, string) ([]string, error)
+}
+
+func (l listed) Items(ctx context.Context, id string) ([]string, error) { return l.items(ctx, id) }
+
+// TestTheDirectorSeesEveryCall (NINA_TEST_ROUTE=1, the redesign's step 4): a card's call reaches the card
+// through the director, its relay in the log (stream tick), none bypassing it.
+func TestTheDirectorSeesEveryCall(t *testing.T) {
+	if os.Getenv("NINA_TEST_ROUTE") == "" {
+		t.Skip("NINA_TEST_ROUTE=1: the intents through the director")
+	}
+	r := newRig(t, tasks.All)
+	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "NIGHT"})
+	homeCall(t, r.k, "home_timers", map[string]any{"intent": "SET", "minutes": 5.0})
+	var relayed, bypassed []string
+	r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+		var f map[string]any
+		json.Unmarshal(e.Data, &f)
+		switch {
+		case e.Kind == "tick-relay" && f["what"] == "intent":
+			relayed = append(relayed, f["domain"].(string))
+		case e.Kind == "tick-intent-bypass":
+			bypassed = append(bypassed, f["domain"].(string))
+		}
+		return nil
+	}, "tick")
+	if strings.Join(relayed, " ") != "scenes timers" || len(bypassed) != 0 {
+		t.Fatalf("relayed %v, bypassed %v", relayed, bypassed)
+	}
+}
+
+// TestAGoalGoesThroughTheRules (the redesign's step 6): with Escalate, a goal is the escalate card's: the
+// rules start a task when the load is free, and the voice's delegate is gone.
+func TestAGoalGoesThroughTheRules(t *testing.T) {
+	rigEscalate = true
+	defer func() { rigEscalate = false }()
+	r := newRig(t, tasks.All)
+	names := map[string]bool{}
+	for _, tl := range r.k.HomeTools() {
+		names[tl.Name] = true
+	}
+	if !names["home_escalate"] {
+		t.Fatalf("no escalate card: %v", names)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if o := r.k.Call(ctx, "home_escalate", map[string]any{"intent": "ESCALATE", "goal": "check the fans"}); o.Status != "done" {
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+			if e.Stream == "tick" || e.Stream == "reasoning" || e.Stream == "surprise" {
+				t.Logf("%s %s %s", e.Stream, e.Kind, e.Data)
+			}
+			return nil
+		})
+		t.Fatalf("the goal: %+v", o)
+	}
+	created := 0
+	for i := 0; i < 50 && created == 0; i++ {
+		time.Sleep(100 * time.Millisecond)
+		r.k.Log.Read(context.Background(), 0, func(e nlog.Event) error {
+			if e.Kind == "created" {
+				created++
+			}
+			return nil
+		}, "task")
+	}
+	if created != 1 {
+		t.Fatalf("tasks created: %d", created)
+	}
+}
+
+// TestNoEscalateCardWhenItIsOff: without Escalate the voice keeps delegate and sees no escalate card.
+func TestNoEscalateCardWhenItIsOff(t *testing.T) {
+	r := newRig(t, tasks.All)
+	for _, tl := range r.k.HomeTools() {
+		if tl.Name == "home_escalate" {
+			t.Fatal("the escalate card with Escalate off")
+		}
 	}
 }

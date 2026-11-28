@@ -11,6 +11,7 @@ package agenda
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,17 +39,16 @@ type Write struct {
 
 // Host is the agenda's host.
 type Host struct {
-	// Entities: a target handle (agenda.llp's type target) → the Home Assistant entity
+	// Entities: a target handle (agenda.llp's type target) → its id in the backend (a Home Assistant
+	// entity, a Google calendar or task list)
 	Entities map[string]string
 	// Names: a target handle → its name in Nina's lines
 	Names map[string]string
-	// Call is a Home Assistant service call (nil: none: every write fails)
-	Call func(ctx context.Context, domain, service string, data map[string]any) error
-	// Items lists a todo entity's items (todo.get_items): an item to remove is found by its name as said
-	// (nil: removed by the name as said)
-	Items func(ctx context.Context, entity string) ([]string, error)
-	Save  func(Write)
-	Now   func() time.Time
+	// Backend keeps the calendars and lists (Home Assistant's integrations: HA; Google's APIs; nil: none,
+	// every write fails)
+	Backend Backend
+	Save    func(Write)
+	Now     func() time.Time
 
 	mu     sync.Mutex
 	failed []string
@@ -111,8 +111,8 @@ func (h *Host) write(kind, target string, p map[string]any) {
 		err = fmt.Errorf("no item named")
 	case w.Entity == "":
 		err = fmt.Errorf("no entity for %s", target)
-	case h.Call == nil:
-		err = fmt.Errorf("no Home Assistant")
+	case h.Backend == nil:
+		err = fmt.Errorf("no calendar or list service")
 	case kind == "event":
 		var start time.Time
 		at := str(p["start"])
@@ -126,39 +126,34 @@ func (h *Host) write(kind, target string, p map[string]any) {
 			}
 			end := start.Add(time.Duration(mins) * time.Minute)
 			w.Start, w.End = start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05")
-			err = h.call("calendar", "create_event", map[string]any{"entity_id": w.Entity, "summary": w.Summary,
-				"start_date_time": w.Start, "end_date_time": w.End, "description": Mark})
+			err = h.do(func(ctx context.Context) error {
+				return h.Backend.CreateEvent(ctx, w.Entity, w.Summary, w.Start, w.End, Mark)
+			})
 		}
 	case kind == "todo":
-		data := map[string]any{"entity_id": w.Entity, "item": w.Summary, "description": Mark}
 		if d := str(p["due"]); d != "" {
 			if t, e := time.ParseInLocation("2006-01-02", d, time.Local); e == nil {
 				w.Due = t.Format("2006-01-02")
-				data["due_date"] = w.Due
 			}
 		}
-		err = h.call("todo", "add_item", data)
-		if err != nil && strings.Contains(err.Error(), "does not support setting field: description") {
-			delete(data, "description") // Home Assistant's own shopping list has no description (Pascal, 2026-11-26)
-			err = h.call("todo", "add_item", data)
-		}
+		err = h.do(func(ctx context.Context) error { return h.Backend.AddItem(ctx, w.Entity, w.Summary, w.Due, Mark) })
 	case kind == "remove":
 		item := w.Summary
-		if h.Items != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			items, e := h.Items(ctx, w.Entity)
-			cancel()
-			if e != nil {
-				err = e
-				break
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		items, e := h.Backend.Items(ctx, w.Entity)
+		cancel()
+		if e != nil && !errors.Is(e, ErrNoItems) {
+			err = e
+			break
+		}
+		if e == nil { // the list's own item, by its name as said (else: removed by the name as said)
 			if item = Match(items, w.Summary); item == "" {
 				err = fmt.Errorf("no %q on it", w.Summary)
 				break
 			}
 		}
 		w.Summary = item
-		err = h.call("todo", "remove_item", map[string]any{"entity_id": w.Entity, "item": item})
+		err = h.do(func(ctx context.Context) error { return h.Backend.RemoveItem(ctx, w.Entity, item) })
 	}
 	if err != nil {
 		w.Err = err.Error()
@@ -200,10 +195,10 @@ func Match(items []string, said string) string {
 	return one
 }
 
-func (h *Host) call(domain, service string, data map[string]any) error {
+func (h *Host) do(f func(ctx context.Context) error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return h.Call(ctx, domain, service, data)
+	return f(ctx)
 }
 
 // parseTime reads a local date and time: YYYY-MM-DDTHH:MM, with seconds or a zone, or HH:MM
