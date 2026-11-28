@@ -3,171 +3,45 @@ package nina
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
 	fmobile "github.com/ibnHatab/fsttm-live/pkg/mobile"
-	"github.com/ibnHatab/nina-live/services/google"
-	"github.com/ibnHatab/nina-live/stage"
-	"github.com/ibnHatab/nina-live/tasks"
-	"github.com/ibnHatab/nina-live/youtube"
-	"google.golang.org/genai"
+	"github.com/ibnHatab/nina-live/app"
 )
 
 func init() {
 	fmobile.SetPersona(start)
-	// her keys, typed on the app's start page when missing (kept in its private files)
+	// her keys, typed on the app's start page when missing (kept in its private files); the rest of her keys
+	// and her Google account: her guided setup (her settings page, the setup card)
 	fmobile.SetKeys(fmobile.Key{Name: "gemini", Label: "Gemini API key (Google AI Studio)", Path: ".config/fsttm/gemini.key"},
-		fmobile.Key{Name: "openrouter", Label: "OpenRouter API key (the tasks' last fallback)", Path: ".config/nina/openrouter.env", Optional: true},
-		fmobile.Key{Name: "youtube", Label: "YouTube Data API key (videos found by a search)", Path: ".config/nina/youtube.key", Optional: true},
-		fmobile.Key{Name: "google", Label: "Google token file's JSON, on one line (nina-google-auth: her photo albums)", Path: ".config/nina/google-token.json", Optional: true})
+		fmobile.Key{Name: "openrouter", Label: "OpenRouter API key (the tasks' last fallback)", Path: ".config/nina/openrouter.env", Optional: true})
 	// her own screen: her face and the conversation (acasa's ha-ui www/nina, put in the app's files as
 	// nina-ui and served by her panel at /nina/), remote: her card alone, no Home Assistant beside it
 	fmobile.SetPanel("http://127.0.0.1:8770/nina/shell.html?remote&fps=20,8&lite&scale=0.7")
 }
 
-// taskCharter: the task runner's part of the charter (after Nina's character).
-const taskCharter = `You carry out a goal Nina's voice handed you: think it through, use your tools when they help,
-and answer in one or two short sentences she can say aloud.`
-
-// start is Nina in the app (2026-11-27, step 1): her voice (Gemini Live) with her character, and
-// delegate(goal) to a pi task (Gemini Flash) whose result she says as a NOTE. The home's tools come
-// with the core (Home Assistant over the network) in the next step. files: the app's files, with
-// nina/dialogue.yaml, nina/nina.md, nina/voice.md and .config/fsttm/gemini.key.
+// start is Nina in the app (2026-11-28): the same persona as at home (nina-live app: her rules, her voice,
+// her tasks, her settings and guided setup, her screen's stage), from the app's files: nina/nina.yaml (the
+// tablet's config: no Home Assistant), nina/dialogue.yaml, nina/nina.md, nina/voice.md, catalog/ (her rules'
+// image, built with the APK). The tablet's own radio, alarms and timers are the deployment's tools.
 func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 	os.Setenv("HOME", files) // the config's ~/ (Android's own HOME is not the app's)
-	dir := filepath.Join(files, "nina")
-	char, err1 := os.ReadFile(filepath.Join(dir, "nina.md"))
-	voice, err2 := os.ReadFile(filepath.Join(dir, "voice.md"))
-	if err1 != nil || err2 != nil {
-		return nil, fmt.Errorf("her character: %v %v", err1, err2)
+	raw, err := os.ReadFile(filepath.Join(files, "nina", "nina.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("her config: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "charter.md"), append(append(char, "\n\n"...), voice...), 0o600); err != nil {
-		return nil, err
+	var c app.Config
+	if err := app.LoadConfig(raw, &c); err != nil {
+		return nil, fmt.Errorf("her config: %w", err)
 	}
-	cfg, err := dialogue.LoadConfig(filepath.Join(dir, "dialogue.yaml"))
+	a, err := app.New(ctx, c, app.Backends{Device: app.NoDevice{}, Tools: deviceTools()}) // no devices: an empty house (nina/home.map.json)
 	if err != nil {
 		return nil, err
 	}
-	var d *dialogue.Dialogue
-	gkey := filepath.Join(files, ".config", "fsttm", "gemini.key")
-	// pero's chain (acasa live/nina-pero.yaml): Google's Flash models answer "high demand" at times
-	// (the first task here failed so, 2026-11-27); then OpenRouter's DeepSeek when all of Google is busy
-	fbs := []tasks.Fallback{{Provider: "google", Model: "gemini-3.5-flash", KeyFile: gkey},
-		{Provider: "google", Model: "gemini-3.5-flash-lite", KeyFile: gkey},
-		{Provider: "google", Model: "gemini-3.1-flash-lite", KeyFile: gkey}}
-	if okey := filepath.Join(files, ".config", "nina", "openrouter.env"); fileExists(okey) {
-		fbs = append(fbs, tasks.Fallback{Provider: "openrouter", Model: "deepseek/deepseek-v4.1-flash", KeyFile: okey})
-	}
-	runner, err := tasks.New(tasks.Config{Provider: "google", Model: "gemini-3.8-flash", KeyFile: gkey, Fallbacks: fbs,
-		MaxTurns: 10, Timeout: 5 * time.Minute, Tools: deviceTools(),
-		System: string(char) + "\n\n# The task runner\n\n" + taskCharter,
-		Note: func(level, text string) {
-			fmt.Fprintf(os.Stderr, "nina: note %s: %s\n", level, text)
-			if d != nil {
-				d.Log("task_note", map[string]any{"level": level, "text": text})
-				if err := d.Note(level, text); err != nil {
-					fmt.Fprintf(os.Stderr, "nina: note refused: %v\n", err)
-				}
-			}
-		}})
-	if err != nil {
+	if err := a.Start(ctx); err != nil {
 		return nil, err
 	}
-	tools := dialogue.Tools{Decls: []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{Name: "delegate",
-		Description: "Hand an open-ended goal to Nina's task runner: something that takes thinking or several steps. " +
-			"It answers at once; the result comes later as a note.",
-		ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{
-			"goal": map[string]any{"type": "string", "description": "the goal, in the person's terms, complete"}},
-			"required": []any{"goal"}}}}}},
-		Funcs: map[string]dialogue.ToolFunc{"delegate": func(_ context.Context, args map[string]any) map[string]any {
-			goal, _ := args["goal"].(string)
-			if strings.TrimSpace(goal) == "" {
-				return map[string]any{"status": "error", "text": "a goal is needed"}
-			}
-			t := runner.Delegate(goal, "important")
-			fmt.Fprintf(os.Stderr, "nina: task %s: %s\n", t.ID, goal)
-			d.Log("task_start", map[string]any{"task": t.ID, "goal": goal})
-			go func() {
-				select {
-				case <-t.Done:
-					f := map[string]any{"task": t.ID, "result": t.Result, "turns": t.Turns}
-					if t.Err != nil {
-						f["error"] = t.Err.Error()
-					}
-					fmt.Fprintf(os.Stderr, "nina: task %s ended: %v\n", t.ID, f)
-					d.Log("task_end", f)
-				case <-time.After(3 * time.Minute):
-					fmt.Fprintf(os.Stderr, "nina: task %s: no end in 3 min\n", t.ID)
-					d.Log("task_stuck", map[string]any{"task": t.ID})
-				}
-			}()
-			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
-		}}}
-	// her screen's stage (the cards off Home Assistant, the user, 2026-11-28): videos (her playlist, a
-	// search with a YouTube key), her albums' photos (with a Google token), as a guest card over her face
-	yt, _ := youtube.Load(filepath.Join(files, ".config", "nina", "youtube.key"), nil)
-	var lib stage.Library
-	var albums func(context.Context) ([]string, error)
-	if g, err := google.Load(filepath.Join(files, ".config", "nina", "google-token.json")); err == nil {
-		lib, albums = g, g.AlbumTitles
-	}
-	own := append(deviceTools(), stage.Tool(yt, albums, func(ev map[string]any) {
-		if d != nil {
-			d.Log("stage", ev)
-		}
-	}))
-	for _, dt := range own { // the radio, alarms, timers and the screen, for the voice too
-		dt := dt
-		tools.Decls[0].FunctionDeclarations = append(tools.Decls[0].FunctionDeclarations,
-			&genai.FunctionDeclaration{Name: dt.Name, Description: dt.Description, ParametersJsonSchema: dt.Parameters})
-		tools.Funcs[dt.Name] = func(ctx context.Context, args map[string]any) map[string]any {
-			status, text := dt.Call(ctx, args)
-			fmt.Fprintf(os.Stderr, "nina: %s %v → %s: %s\n", dt.Name, args, status, text)
-			return map[string]any{"status": status, "text": text}
-		}
-	}
-	d, err = dialogue.New(ctx, cfg, dialogue.NewEvents(io.Discard), tools)
-	if err != nil {
-		return nil, err
-	}
-	d.OnAction = func(action, arg string) (bool, error) { // her screen's slideshow: an album's photos (stage/photos.go)
-		if action != "album_photos" {
-			return false, nil
-		}
-		if lib == nil {
-			return true, fmt.Errorf("photos: no Google token (the start page's google key)")
-		}
-		stage.Action(lib, arg, d.Log)
-		return true, nil
-	}
-	if err := d.StartPlugins(ctx); err != nil {
-		return nil, err
-	}
-	go clock(ctx, d)
-	return d, nil
+	return a.D, nil
 }
-
-// clock gives her the time once a minute (as the core does: her session has no clock of its own).
-func clock(ctx context.Context, d *dialogue.Dialogue) {
-	last := ""
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-		}
-		now := time.Now()
-		if m := now.Format("Mon 2 Jan 2006 15:04"); m != last {
-			last = m
-			zone, _ := now.Zone()
-			d.Context("now", fmt.Sprintf("now: %s (%s, local time)", m, zone))
-		}
-	}
-}
-
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

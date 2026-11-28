@@ -1,0 +1,39 @@
+# Nina on the tablet (2026-11-28): the persona as a library (app.New), as at home but with no Home
+# Assistant: her rules from the APK's catalog image (no metisc on the device), her voice from
+# dialogue.yaml, the tablet's own radio, alarms and timers as the deployment's tools. ~ is the app's files
+# (mobile/persona.go sets HOME). A key's file missing is a part not working, set from her setup.
+log: ~/nina/nina.db
+home:
+  root: ~/catalog
+  beat: 1s
+  checkpoint_every: 60
+  call_timeout: 6s
+  composed: true
+dialogue: ~/nina/dialogue.yaml
+levels: {result: context, event: info, surprise: info, error: context}
+persona: ~/nina/nina.md
+voice: ~/nina/voice.md
+tasks:
+  enabled: true
+  provider: google
+  model: gemini-3.8-flash
+  key: ~/.config/fsttm/gemini.key
+  fallback:
+    - {provider: google, model: gemini-3.5-flash, key: ~/.config/fsttm/gemini.key}
+    - {provider: google, model: gemini-3.5-flash-lite, key: ~/.config/fsttm/gemini.key}
+    - {provider: google, model: gemini-3.1-flash-lite, key: ~/.config/fsttm/gemini.key}
+    - {provider: openrouter, model: deepseek/deepseek-v4.1-flash, key: ~/.config/nina/openrouter.env}
+  max_turns: 10
+  timeout: 5m
+search:
+  enabled: true
+  models: [gemini-3.8-flash]
+  key: ~/.config/fsttm/gemini.key
+  daily: 300
+music:
+  languages: [english]
+youtube:
+  key: ~/.config/nina/youtube.key
+  playlists:
+    Claudia: PLSh0S6uPqqgA
+radar: false
