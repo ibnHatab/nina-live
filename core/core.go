@@ -1095,8 +1095,9 @@ func (k *Core) ReportTool() *tasks.Tool {
 	return &tasks.Tool{Name: "keep_in_mind", Domain: "commitments",
 		Description: "Things the person asks Nina to keep in mind and bring up the next time they talk (not at a time: " +
 			"for a time, the timers). KEEP: a new thing to remember or to remind them of next time (\"remind me next time to " +
-			"call the plumber\"); LATER: something you brought up, the person puts it off but it is still to do; AGAIN: " +
-			"bring up again next time something you already brought up; DONE: it is done or no longer needed, forget it. " +
+			"call the plumber\"); AGAIN: something you brought up, to bring up again next time (\"not now, remind me again " +
+			"next time\"); LATER: something you brought up that the person puts off without asking to be reminded (kept, not " +
+			"brought up again by itself); DONE: it is done or no longer needed, forget it. " +
 			"The words as the person said them (for LATER, AGAIN and DONE, enough of them to tell which).",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
 			"verb":  map[string]any{"type": "string", "enum": []any{"KEEP", "LATER", "AGAIN", "DONE"}},

@@ -641,6 +641,7 @@ func voiceStrain(kind string, e map[string]any) {
 func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string), woke func()) {
 	ch, cancel := d.Subscribe()
 	defer cancel()
+	asleep := true // the voice logs wake for every line typed; a conversation opens only from her sleep
 	for {
 		select {
 		case <-ctx.Done():
@@ -655,8 +656,14 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 				to, _ := e["to"].(string)
 				floor(to)
 			}
-			if kind == "wake" && woke != nil { // a conversation opened: the cognition's floor
-				woke()
+			switch kind {
+			case "sleep":
+				asleep = true
+			case "wake":
+				if asleep && woke != nil { // a conversation opened: the cognition's floor
+					woke()
+				}
+				asleep = false
 			}
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
