@@ -437,7 +437,9 @@ func minutes(sec float64) string {
 	return fmt.Sprintf("%.1f h", m/60)
 }
 
-// clockTime: an alarm's time, HH:MM (today, or tomorrow when it has passed) or YYYY-MM-DDTHH:MM, local.
+// clockTime: an alarm's time, HH:MM (today, or tomorrow when it has passed) or YYYY-MM-DDTHH:MM, local. The
+// words she may pass along are read too: "07:30 tomorrow", "tomorrow at seven thirty", "half past six in the
+// evening", "7 am": tomorrow (or today) names the day, morning / afternoon / evening / tonight the half.
 func clockTime(s string, now time.Time) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	for _, f := range []string{"2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02T15:04:05"} {
@@ -445,16 +447,126 @@ func clockTime(s string, now time.Time) (time.Time, error) {
 			return t, nil
 		}
 	}
-	for _, f := range []string{"15:04", "15.04", "3:04pm", "3:04 pm", "3pm", "3 pm"} {
-		if t, err := time.ParseInLocation(f, strings.ToLower(s), time.Local); err == nil {
-			d := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.Local)
-			if !d.After(now) {
-				d = d.AddDate(0, 0, 1)
-			}
-			return d, nil
+	hm, day, half, ok := spokenTime(s)
+	if !ok {
+		return time.Time{}, fmt.Errorf("a time I can't read: %q", s)
+	}
+	h, m := hm/60, hm%60
+	switch {
+	case half == "pm" && h < 12:
+		h += 12
+	case half == "am" && h == 12:
+		h = 0
+	}
+	d := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, time.Local)
+	switch day {
+	case "tomorrow":
+		d = d.AddDate(0, 0, 1)
+	case "":
+		if !d.After(now) {
+			d = d.AddDate(0, 0, 1)
 		}
 	}
-	return time.Time{}, fmt.Errorf("a time I can't read: %q", s)
+	return d, nil
+}
+
+var (
+	numberWords = map[string]int{"zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+		"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+		"fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+		"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "noon": 12, "midnight": 0}
+	dayWords  = map[string]string{"tomorrow": "tomorrow", "today": "today", "tonight": "today"}
+	halfWords = map[string]string{"am": "am", "a.m.": "am", "morning": "am", "pm": "pm", "p.m.": "pm",
+		"afternoon": "pm", "evening": "pm", "tonight": "pm", "night": "pm"}
+	fillWords = map[string]bool{"at": true, "in": true, "the": true, "of": true, "o'clock": true, "oclock": true,
+		"sharp": true, "on": true, "this": true, "for": true, "and": true}
+)
+
+// spokenTime reads a clock time out of words: minutes after midnight (12-hour unless the half or a
+// 24-hour reading says otherwise), the day word and the half word it named.
+func spokenTime(s string) (hm int, day, half string, ok bool) {
+	s = strings.ToLower(s)
+	for _, r := range []string{"a.m.", "p.m."} { // before the dots become separators
+		s = strings.ReplaceAll(s, r, " "+strings.ReplaceAll(r, ".", "")+" ")
+	}
+	s = strings.NewReplacer("-", " ", ",", " ").Replace(s)
+	var nums []int
+	past, to := -1, -1 // "half past six", "quarter to seven": the minutes, before the hour
+	for _, w := range strings.Fields(s) {
+		for _, sfx := range []string{"am", "pm"} { // 7am, 7:30pm
+			if len(w) > 2 && strings.HasSuffix(w, sfx) && w[len(w)-3] >= '0' && w[len(w)-3] <= '9' {
+				half, w = sfx, w[:len(w)-2]
+			}
+		}
+		if d, isDay := dayWords[w]; isDay {
+			day = d
+		}
+		if hw, isHalf := halfWords[w]; isHalf {
+			half = hw
+			continue
+		}
+		switch {
+		case dayWords[w] != "" || fillWords[w]:
+		case w == "half":
+			past = 30
+		case w == "quarter":
+			past = 15
+		case w == "past" || w == "after":
+			if past < 0 && len(nums) > 0 { // "twenty past seven"
+				past, nums = nums[len(nums)-1], nums[:len(nums)-1]
+			}
+		case w == "to" || w == "before":
+			if past >= 0 {
+				to, past = past, -1
+			} else if len(nums) > 0 {
+				to, nums = nums[len(nums)-1], nums[:len(nums)-1]
+			}
+		case strings.ContainsAny(w, ":."):
+			if t, err := time.Parse("15:04", strings.ReplaceAll(w, ".", ":")); err == nil {
+				nums = append(nums, t.Hour(), t.Minute())
+			} else {
+				return 0, "", "", false
+			}
+		default:
+			if n, err := strconv.Atoi(w); err == nil {
+				nums = append(nums, n)
+			} else if n, isNum := numberWords[w]; isNum {
+				if w == "noon" && half == "" {
+					half = "pm"
+				}
+				nums = append(nums, n)
+			} else {
+				return 0, "", "", false
+			}
+		}
+	}
+	// "seven thirty five": hour then minutes, the tens and units of the minutes summed
+	if len(nums) == 0 {
+		return 0, "", "", false
+	}
+	h, m := nums[0], 0
+	switch r := nums[1:]; {
+	case len(r) == 1:
+		m = r[0]
+	case len(r) == 2 && r[0]%10 == 0 && r[0] < 60 && r[1] > 0 && r[1] < 10: // forty five, oh five
+		m = r[0] + r[1]
+	case len(r) > 1:
+		return 0, "", "", false
+	}
+	switch {
+	case past >= 0:
+		m = past
+	case to >= 0:
+		m = 60 - to
+		h--
+		if h < 0 {
+			h = 23
+		}
+	}
+	if h > 23 || m > 59 || (half != "" && h > 12) {
+		return 0, "", "", false
+	}
+	return h*60 + m, day, half, true
 }
 
 func number(v any) float64 {

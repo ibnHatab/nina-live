@@ -19,13 +19,30 @@ func TestClockTime(t *testing.T) {
 		{"22:15", time.Date(2026, 11, 26, 22, 15, 0, 0, time.Local)},
 		{"7:30pm", time.Date(2026, 11, 27, 19, 30, 0, 0, time.Local)},
 		{"2026-11-28T09:00", time.Date(2026, 11, 28, 9, 0, 0, 0, time.Local)},
+		// the words she passes along (the SITL's alarm-once: each of these was a one-minute timer)
+		{"07:30 tomorrow", time.Date(2026, 11, 27, 7, 30, 0, 0, time.Local)},
+		{"tomorrow 7:30", time.Date(2026, 11, 27, 7, 30, 0, 0, time.Local)},
+		{"tomorrow at seven thirty", time.Date(2026, 11, 27, 7, 30, 0, 0, time.Local)},
+		{"seven thirty tomorrow morning", time.Date(2026, 11, 27, 7, 30, 0, 0, time.Local)},
+		{"7 am", time.Date(2026, 11, 27, 7, 0, 0, 0, time.Local)},
+		{"7am", time.Date(2026, 11, 27, 7, 0, 0, 0, time.Local)},
+		{"7:30 a.m.", time.Date(2026, 11, 27, 7, 30, 0, 0, time.Local)},
+		{"half past six in the evening", time.Date(2026, 11, 27, 18, 30, 0, 0, time.Local)},
+		{"quarter to eleven tonight", time.Date(2026, 11, 26, 22, 45, 0, 0, time.Local)},
+		{"twenty past seven", time.Date(2026, 11, 27, 7, 20, 0, 0, time.Local)},
+		{"seven o'clock", time.Date(2026, 11, 27, 7, 0, 0, 0, time.Local)},
+		{"seven forty five", time.Date(2026, 11, 27, 7, 45, 0, 0, time.Local)},
+		{"tomorrow at noon", time.Date(2026, 11, 27, 12, 0, 0, 0, time.Local)},
+		{"22:15 today", time.Date(2026, 11, 26, 22, 15, 0, 0, time.Local)},
 	} {
 		if got, err := clockTime(c.in, now); err != nil || !got.Equal(c.want) {
 			t.Errorf("%s: %v %v, want %v", c.in, got, err, c.want)
 		}
 	}
-	if _, err := clockTime("soonish", now); err == nil {
-		t.Error("soonish read")
+	for _, bad := range []string{"soonish", "seven thirty pm tomorrow 25", "13 pm", "after lunch"} {
+		if _, err := clockTime(bad, now); err == nil {
+			t.Errorf("%q read", bad)
+		}
 	}
 }
 
