@@ -40,6 +40,7 @@ import (
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/taste"
 	"github.com/ibnHatab/nina-live/timers"
+	"github.com/ibnHatab/nina-live/view"
 	"github.com/ibnHatab/nina-live/world"
 	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
@@ -96,6 +97,9 @@ type Core struct {
 	Home   *metishome.Service
 	Tasks  *tasks.Runner
 	Timers *timers.Host
+	// View is the one view port: the rules' lines, the world's, the services' and what she is to say
+	// on her own reach the voice and the tasks through it (view/)
+	View   *view.Port
 	Agenda *agenda.Host
 	Music  *music.Host
 	Habits *habits.Host
@@ -148,6 +152,25 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		c.Levels = map[string]string{"result": "context", "event": "info", "surprise": "info", "error": "context"}
 	}
 	k := &Core{Cfg: c, Log: c.Log, port: port.New(port.Default)}
+	k.View = &view.Port{Levels: c.Levels,
+		Voice: func() view.Voice {
+			if v := k.Voice(); v != nil {
+				return v
+			}
+			return nil
+		},
+		Tasks: func() view.Tasks {
+			if k.Tasks != nil {
+				return k.Tasks
+			}
+			return nil
+		},
+		// the cognition's rules are its bookkeeping (the books' citations): what it has to say is its say command
+		Skip: func(d string) bool { return k.Cognition != nil && slices.Contains(cognition.Members, d) },
+		Log: func(l view.Line, voice, tasks string) {
+			c.Log.Append(c.Now(), "view", l.Source, l.Domain+l.Key, "", map[string]any{"domain": l.Domain, "kind": l.Kind,
+				"key": l.Key, "level": l.Level, "text": l.Text, "voice": voice, "tasks": tasks}, 1)
+		}}
 	k.Taste = &taste.World{Now: c.Now} // its world is filled in once the world is open
 	var hosts map[string]metishome.HostSpec
 	if c.Timers || c.Composed {
@@ -166,11 +189,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 				// a ring is said whether she is talking or asleep (urgent: the next free floor, never
 				// over the person); the rules' own line stays the context's (2026-11-28: as an info
 				// note, a ring was filtered while she was awake and never said)
-				go func() {
-					if v := k.Voice(); v != nil {
-						v.Note("urgent", said)
-					}
-				}()
+				go k.View.Say("timers", "urgent", said)
 			}
 		}, past)
 		hosts = map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return k.Timers }, Outcomes: timers.Outcomes}}
@@ -363,11 +382,7 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		tc := *c.Tasks
 		tc.Tools = append(k.HomeTools(), tc.Tools...)
 		tc.World, tc.Log, tc.Now = k.WorldLines, c.Log, c.Now
-		tc.Note = func(level, text string) {
-			if v := k.Voice(); v != nil {
-				v.Note(level, text)
-			}
-		}
+		tc.Note = func(level, text string) { k.View.Say("tasks", level, text) }
 		if k.Tasks, err = tasks.New(tc); err != nil {
 			return nil, err
 		}
@@ -407,12 +422,12 @@ func (k *Core) surprise(domain string, r map[string]any) {
 	k.mu.Unlock()
 	k.surprisesNow()
 	what := k.surpriseWords(r)
-	if v := k.Voice(); v != nil && (mention || what != "") {
+	if mention || what != "" {
 		if what != "" { // a device that did not do what it was told (B01-C02): she must not say it did
-			v.Note("info", fmt.Sprintf("Something in the %s surprised you just now: %s. Do not say it did what was asked; "+
+			k.View.Say("surprise", "info", fmt.Sprintf("Something in the %s surprised you just now: %s. Do not say it did what was asked; "+
 				"say so in a few words when the moment is quiet, and if asked.", domain, what))
 		} else {
-			v.Note("info", fmt.Sprintf("Something in the %s surprised you just now (its rules did not expect it). Mention it in a few words when the moment is quiet; the person can ask what surprised you.", domain))
+			k.View.Say("surprise", "info", fmt.Sprintf("Something in the %s surprised you just now (its rules did not expect it). Mention it in a few words when the moment is quiet; the person can ask what surprised you.", domain))
 		}
 	}
 }
@@ -871,25 +886,7 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 
 func (k *Core) reasoning(r metishome.Reasoning) {
 	k.Log.Append(k.Cfg.Now(), "reasoning", r.Kind, r.Domain, "", map[string]string{"line": r.Line, "status": r.Status, "text": r.Text}, 1)
-	if k.Cognition != nil && slices.Contains(cognition.Members, r.Domain) {
-		return // the cognition's rules are its bookkeeping (the books' citations): what it has to say is its say command
-	}
-	if k.Tasks != nil {
-		k.Tasks.Reasoning(r.Domain, r.Kind, r.Line)
-	}
-	v := k.Voice()
-	if v == nil {
-		return
-	}
-	switch lv := k.Cfg.Levels[r.Kind]; lv {
-	case "drop":
-	case "", "context":
-		v.Context("", r.Line)
-	default:
-		if v.Note(lv, r.Line) != nil {
-			v.Context("", r.Line)
-		}
-	}
+	k.View.Deliver(view.Line{Source: view.Rules, Domain: r.Domain, Kind: r.Kind, Text: r.Line})
 }
 
 func (k *Core) tick(kind string, f map[string]any) {
@@ -924,41 +921,25 @@ func ageWord(s float64) string {
 // project gives the voice, and the tasks that named what they are about, the world's lines when
 // what they say or their confidence's level changes (the quantized port).
 func (k *Core) project(lines []sw.Line) {
-	v := k.Voice()
-	if v == nil {
-		v = mute{}
-	}
+	var out []view.Line
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	for _, l := range lines {
 		if changed, _ := k.port.Step(l); !changed { // a new value or confidence level only
 			continue
 		}
-		text := ages.ReplaceAllString(l.Text, ageWord(l.Age))
-		if l.Stream == "env" && l.Key != "" {
-			if k.Tasks != nil {
-				k.Tasks.World(text)
-			}
-			text = l.Key + ": " + text
-		}
-		v.Context(l.Key, text)
+		out = append(out, view.Line{Source: view.World, Key: l.Key, Env: l.Stream == "env",
+			Text: ages.ReplaceAllString(l.Text, ageWord(l.Age))})
+	}
+	k.mu.Unlock() // the port asks for the voice, under the core's lock
+	for _, l := range out {
+		k.View.Deliver(l)
 	}
 }
-
-type mute struct{}
-
-func (mute) Context(string, string)    {}
-func (mute) Note(string, string) error { return nil }
 
 // Observe is an integration's line that changed (its key: the entity): the voice's silent context
 // and the tasks that named what it is about.
 func (k *Core) Observe(key, line string) {
-	if v := k.Voice(); v != nil {
-		v.Context(key, line)
-	}
-	if k.Tasks != nil {
-		k.Tasks.World(line)
-	}
+	k.View.Deliver(view.Line{Source: view.Service, Key: key, Text: line})
 }
 
 // WorldLines are the world's environment lines now (a task's TransformContext), then the
@@ -1093,12 +1074,10 @@ func (k *Core) openCognition(ctx context.Context, c *Config, hosts *map[string]m
 	}
 	cw.Say = func(words string) {
 		c.Log.Append(c.Now(), "cognition", "say", "", "", map[string]any{"words": words}, 1)
-		if v := k.Voice(); v != nil {
-			// important: the person asked for it (an info note is only context while she is awake); the voice
-			// says it on a free floor, after the person's chance to go on (fsttm's NOTE)
-			v.Note("important", fmt.Sprintf("Something the person asked you to keep in mind, to bring up when you next "+
-				"talk: %q. Say it now in a few words.", words))
-		}
+		// important: the person asked for it (an info note is only context while she is awake); the voice
+		// says it on a free floor, after the person's chance to go on (fsttm's NOTE)
+		k.View.Say("cognition", "important", fmt.Sprintf("Something the person asked you to keep in mind, to bring up when you next "+
+			"talk: %q. Say it now in a few words.", words))
 	}
 	if *hosts == nil {
 		*hosts = map[string]metishome.HostSpec{}

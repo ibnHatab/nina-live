@@ -88,6 +88,12 @@ both measured before one is chosen:
 Steps 1–4 each land behind a config switch (`voice.cards: two|per_package`, `tasks.escalate`,
 `view.port: one|legacy`, `mcp.residual_log`), so pero can run the old path while Pascal runs the new.
 
+Step 3 landed without its switch (2026-11-28, `view/`). The one port delivers exactly what the three
+paths did (the rules' replies, the world's changed lines, the services' observations, and the notes she
+says on her own), so there is no old path to keep. Its log (stream `view`: each line, what the voice and
+the tasks got) is the gate's "same lines reach both" check. The attended card's filter for the voice
+waits for the cards (step 1's V1 did not pass).
+
 ## 6. Measurement plan
 
 **Baseline first.** Before any step: run the frozen scenario set on today's code (main at the start of
