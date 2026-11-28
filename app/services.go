@@ -55,7 +55,7 @@ func Direct(c Config, b Backends) (Backends, error) {
 		}
 	}
 	if s.Photos == "google" {
-		b.Albums, b.Photos = g.AlbumTitles, g
+		b.Albums, b.Photos, b.Library = g.AlbumTitles, g, g
 	}
 	o := &observer{base: b.Observed, poke: make(chan struct{}, 1)}
 	if s.Agenda == "google" {

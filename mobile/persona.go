@@ -11,7 +11,10 @@ import (
 
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
 	fmobile "github.com/ibnHatab/fsttm-live/pkg/mobile"
+	"github.com/ibnHatab/nina-live/services/google"
+	"github.com/ibnHatab/nina-live/stage"
 	"github.com/ibnHatab/nina-live/tasks"
+	"github.com/ibnHatab/nina-live/youtube"
 	"google.golang.org/genai"
 )
 
@@ -19,7 +22,9 @@ func init() {
 	fmobile.SetPersona(start)
 	// her keys, typed on the app's start page when missing (kept in its private files)
 	fmobile.SetKeys(fmobile.Key{Name: "gemini", Label: "Gemini API key (Google AI Studio)", Path: ".config/fsttm/gemini.key"},
-		fmobile.Key{Name: "openrouter", Label: "OpenRouter API key (the tasks' last fallback)", Path: ".config/nina/openrouter.env", Optional: true})
+		fmobile.Key{Name: "openrouter", Label: "OpenRouter API key (the tasks' last fallback)", Path: ".config/nina/openrouter.env", Optional: true},
+		fmobile.Key{Name: "youtube", Label: "YouTube Data API key (videos found by a search)", Path: ".config/nina/youtube.key", Optional: true},
+		fmobile.Key{Name: "google", Label: "Google token file's JSON, on one line (nina-google-auth: her photo albums)", Path: ".config/nina/google-token.json", Optional: true})
 	// her own screen: her face and the conversation (acasa's ha-ui www/nina, put in the app's files as
 	// nina-ui and served by her panel at /nina/), remote: her card alone, no Home Assistant beside it
 	fmobile.SetPanel("http://127.0.0.1:8770/nina/shell.html?remote&fps=20,8&lite&scale=0.7")
@@ -103,7 +108,20 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 			}()
 			return map[string]any{"status": "accepted", "task": t.ID, "text": "I'm on it; the result will come as a note."}
 		}}}
-	for _, dt := range deviceTools() { // the radio, alarms and timers, for the voice too
+	// her screen's stage (the cards off Home Assistant, the user, 2026-11-28): videos (her playlist, a
+	// search with a YouTube key), her albums' photos (with a Google token), as a guest card over her face
+	yt, _ := youtube.Load(filepath.Join(files, ".config", "nina", "youtube.key"), nil)
+	var lib stage.Library
+	var albums func(context.Context) ([]string, error)
+	if g, err := google.Load(filepath.Join(files, ".config", "nina", "google-token.json")); err == nil {
+		lib, albums = g, g.AlbumTitles
+	}
+	own := append(deviceTools(), stage.Tool(yt, albums, func(ev map[string]any) {
+		if d != nil {
+			d.Log("stage", ev)
+		}
+	}))
+	for _, dt := range own { // the radio, alarms, timers and the screen, for the voice too
 		dt := dt
 		tools.Decls[0].FunctionDeclarations = append(tools.Decls[0].FunctionDeclarations,
 			&genai.FunctionDeclaration{Name: dt.Name, Description: dt.Description, ParametersJsonSchema: dt.Parameters})
@@ -116,6 +134,16 @@ func start(ctx context.Context, files string) (*dialogue.Dialogue, error) {
 	d, err = dialogue.New(ctx, cfg, dialogue.NewEvents(io.Discard), tools)
 	if err != nil {
 		return nil, err
+	}
+	d.OnAction = func(action, arg string) (bool, error) { // her screen's slideshow: an album's photos (stage/photos.go)
+		if action != "album_photos" {
+			return false, nil
+		}
+		if lib == nil {
+			return true, fmt.Errorf("photos: no Google token (the start page's google key)")
+		}
+		stage.Action(lib, arg, d.Log)
+		return true, nil
 	}
 	if err := d.StartPlugins(ctx); err != nil {
 		return nil, err

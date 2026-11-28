@@ -30,6 +30,7 @@ import (
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/mcp"
 	"github.com/ibnHatab/nina-live/music"
+	"github.com/ibnHatab/nina-live/stage"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/websearch"
 	"github.com/ibnHatab/nina-live/whatsapp"
@@ -174,6 +175,7 @@ type Backends struct {
 	Presence func(ctx context.Context, set func(core.Presence))
 	Albums   func(ctx context.Context) ([]string, error) // the photo albums her screen can show
 	Photos   Photos                                      // her albums with the Picker (add_photos: photos.go)
+	Library  stage.Library                               // her albums' photos for her screens' slideshow (album_photos)
 }
 
 // Named is a list, a calendar or a weather source by its id and its name.
@@ -328,7 +330,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		pick = &pt
 		reads = append(reads, pt)
 	}
-	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
+	reads = append(reads, stage.Tool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
 			stageLog("stage", d)
 		}
@@ -410,6 +412,13 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
 	d.OnAction = func(action, arg string) (bool, error) { // her settings from her screens: name, persona, temperament
+		if action == "album_photos" { // her screens' slideshow: the album's photos as an event (stage/photos.go)
+			if b.Library == nil {
+				return true, fmt.Errorf("photos: not enabled in her config (services.photos: google)")
+			}
+			stage.Action(b.Library, arg, func(kind string, d map[string]any) { stageLog(kind, d) })
+			return true, nil
+		}
 		if action == "pick_photos" { // a button's add_photos (its arg: the album; "" Nina's gallery)
 			if pick == nil {
 				return true, fmt.Errorf("photos: not enabled in her config (services.photos: google)")
@@ -653,10 +662,10 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
 			}
-			if _, ok := e["png"]; ok && (kind == "wa_status" || kind == "photos_pick") { // a link's QR: on her screens, not in the log
+			if _, png := e["png"]; png && (kind == "wa_status" || kind == "photos_pick") || kind == "album_photos" { // a link's QR, an album's hour-long URLs: on her screens, not in the log
 				c := map[string]any{}
 				for k, v := range e {
-					if k != "png" {
+					if k != "png" && k != "photos" {
 						c[k] = v
 					}
 				}
