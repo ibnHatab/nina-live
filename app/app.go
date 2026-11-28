@@ -474,7 +474,8 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 	if b.Watch != nil {
-		go b.Watch(ctx, k.World.Apply, k.Observe)
+		v := newView(d.Log)
+		go b.Watch(ctx, k.World.Apply, func(key, text string) { k.Observe(key, text); v.set(key, text) })
 	}
 	go k.Run(ctx, c.Home.Beat)
 	return nil
@@ -659,7 +660,7 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 				to, _ := e["to"].(string)
 				floor(to)
 			}
-			if kind == "interim" || kind == "said" || kind == "" {
+			if kind == "interim" || kind == "said" || kind == "view" || kind == "" { // view: her screens' copy of her context lines
 				continue
 			}
 			if _, png := e["png"]; png && (kind == "wa_status" || kind == "photos_pick") || kind == "album_photos" { // a link's QR, an album's hour-long URLs: on her screens, not in the log
