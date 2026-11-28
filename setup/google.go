@@ -19,14 +19,122 @@ import (
 	"github.com/ibnHatab/nina-live/services/google"
 )
 
-// Scopes are what her Google account gives her: the agenda (Calendar's events, Tasks), her albums (the
-// ones she made; Google's rule since 2025) and the photos the person picks for her.
-var Scopes = []string{
-	"https://www.googleapis.com/auth/calendar.events",
-	"https://www.googleapis.com/auth/tasks",
-	"https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
-	"https://www.googleapis.com/auth/photoslibrary.appendonly",
-	"https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+// Service is one of the person's Google services she may be let use: by the account's sign-in (its scopes)
+// or by an API key (YouTube's search, Gemini).
+type Service struct {
+	ID, Title, Why string
+	Scopes         []string // the sign-in's permissions it needs
+	APIs           []string // the APIs enabled in the project beyond what Google's personal setup enables
+	Key            bool     // used with an API key
+	Off            string   // why it cannot be chosen yet ("": it can)
+}
+
+const auth = "https://www.googleapis.com/auth/"
+
+// Services are the Google services her one Google integration offers (the user, 2026-11-28: one card for
+// Google, its services by the person's choice). Personal mode's page enables the Workspace APIs; Photos,
+// YouTube and Gemini are enabled by the step after it.
+var Services = []Service{
+	{ID: "calendar", Title: "Calendar", Why: "your events, and the ones she adds", Scopes: []string{auth + "calendar.events"}},
+	{ID: "tasks", Title: "Tasks", Why: "your lists and to-dos", Scopes: []string{auth + "tasks"}},
+	{ID: "photos", Title: "Photos", Why: "her albums, and the photos you pick for her screen",
+		Scopes: []string{auth + "photoslibrary.readonly.appcreateddata", auth + "photoslibrary.appendonly", auth + "photospicker.mediaitems.readonly"},
+		APIs:   []string{"photoslibrary.googleapis.com", "photospicker.googleapis.com"}},
+	{ID: "youtube", Title: "YouTube", Why: "videos found by search, on her screen", Key: true, APIs: []string{"youtube.googleapis.com"}},
+	{ID: "gemini", Title: "Gemini", Why: "her voice, her ears and her tasks", Key: true, APIs: []string{"generativelanguage.googleapis.com"}},
+	{ID: "gmail", Title: "Gmail", Why: "your mail", Off: "not yet: Google keeps sending mail for its partners"},
+}
+
+// Scopes are every service's permissions (nina-google-auth's sign-in: all of them).
+var Scopes = func() []string {
+	var out []string
+	for _, sv := range Services {
+		out = append(out, sv.Scopes...)
+	}
+	return out
+}()
+
+// Choose sets the services she may use (unknown ids or ones not offered yet: an error, nothing changed).
+func (s *Setup) Choose(ids []string) error {
+	var out []string
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id == "" {
+			continue
+		}
+		sv, ok := service(id)
+		if !ok {
+			return fmt.Errorf("setup: no Google service %q", id)
+		}
+		if sv.Off != "" {
+			return fmt.Errorf("setup: %s: %s", sv.Title, sv.Off)
+		}
+		out = append(out, id)
+	}
+	s.cmu.Lock()
+	s.chosen = out
+	s.cmu.Unlock()
+	return nil
+}
+
+// Chosen: the services she may use.
+func (s *Setup) Chosen() []string {
+	s.cmu.Lock()
+	defer s.cmu.Unlock()
+	return append([]string(nil), s.chosen...)
+}
+
+func service(id string) (Service, bool) {
+	for _, sv := range Services {
+		if sv.ID == id {
+			return sv, true
+		}
+	}
+	return Service{}, false
+}
+
+func (s *Setup) chose(id string) bool {
+	for _, c := range s.Chosen() {
+		if c == id {
+			return true
+		}
+	}
+	return false
+}
+
+// scopes: the chosen services' permissions
+func (s *Setup) scopes() []string {
+	var out []string
+	for _, id := range s.Chosen() {
+		sv, _ := service(id)
+		out = append(out, sv.Scopes...)
+	}
+	return out
+}
+
+func (s *Setup) needsSignIn() bool { return len(s.scopes()) > 0 }
+func (s *Setup) needsKey() bool    { return s.chose("youtube") || s.chose("gemini") }
+
+// moreAPIs: the APIs the chosen services need beyond personal mode's (Photos, YouTube, Gemini)
+func (s *Setup) moreAPIs() []string {
+	var out []string
+	for _, id := range s.Chosen() {
+		sv, _ := service(id)
+		out = append(out, sv.APIs...)
+	}
+	return out
+}
+
+func (s *Setup) servicesView() []map[string]any {
+	var out []map[string]any
+	for _, sv := range Services {
+		e := map[string]any{"id": sv.ID, "title": sv.Title, "why": sv.Why, "on": s.chose(sv.ID)}
+		if sv.Off != "" {
+			e["off"] = sv.Off
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // client is an OAuth client: Google Cloud's download (a Desktop app's "installed", a Web client's "web").
@@ -166,7 +274,7 @@ func (s *Setup) startSignIn(in *Integration, n int) error {
 		auth = c.AuthURI
 	}
 	si.url = auth + "?" + query("client_id", c.ClientID, "redirect_uri", si.redirect, "response_type", "code",
-		"scope", strings.Join(Scopes, " "), "access_type", "offline", "prompt", "consent", "state", si.state)
+		"scope", strings.Join(s.scopes(), " "), "access_type", "offline", "prompt", "consent", "state", si.state)
 	si.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" || r.URL.Query().Get("state") != si.state {
 			http.Error(w, "not this sign-in", 400)
@@ -266,7 +374,7 @@ func (s *Setup) exchange(c client, si *signin, q url.Values) Result {
 		return Result{Detail: fmt.Sprintf("no refresh token (%s %s)", t.Error, t.Desc), Hint: "Google gave no lasting sign-in. Start the sign-in again."}
 	}
 	var lacking []string
-	for _, sc := range Scopes {
+	for _, sc := range s.scopes() {
 		if !strings.Contains(" "+t.Scope+" ", " "+sc+" ") {
 			lacking = append(lacking, strings.TrimPrefix(sc, "https://www.googleapis.com/auth/"))
 		}
@@ -320,16 +428,22 @@ func (s *Setup) googleAPIs(ctx context.Context, t google.Token) Result {
 			ok = append(ok, name)
 		}
 	}
-	if _, err := g.TaskLists(ctx); err != nil && strings.Contains(err.Error(), "invalid_grant") {
+	if _, err := g.TaskLists(ctx); err != nil && strings.Contains(err.Error(), "invalid_grant") { // the token's refresh: any call tells
 		return Result{Detail: "Google no longer accepts the sign-in (invalid_grant)",
 			Hint: "Google has ended that sign-in: in Testing it lasts seven days. Publish the app on the Audience page, then sign in again."}
 	}
-	try("calendar", func() error { _, err := g.Events(ctx, "primary", 24*time.Hour, 1); return err })
-	try("tasks", func() error { _, err := g.TaskLists(ctx); return err })
-	try("photos", func() error { _, err := g.Albums(ctx); return err })
+	if s.chose("calendar") {
+		try("calendar", func() error { _, err := g.Events(ctx, "primary", 24*time.Hour, 1); return err })
+	}
+	if s.chose("tasks") {
+		try("tasks", func() error { _, err := g.TaskLists(ctx); return err })
+	}
+	if s.chose("photos") {
+		try("photos", func() error { _, err := g.Albums(ctx); return err })
+	}
 	if len(bad) > 0 {
 		r := Result{Detail: "works: " + strings.Join(ok, ", ") + "; fails: " + strings.Join(bad, "; ")}
-		r.Hint = "Some of Google's APIs refused. Enable them in the project: Calendar, Tasks, Photos Library and Photos Picker. Then check again."
+		r.Hint = "Some of Google's services refused me. Enable their APIs in the project, then check again."
 		if len(ok) == 0 {
 			r.Detail = "fails: " + strings.Join(bad, "; ")
 		}

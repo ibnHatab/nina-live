@@ -1,17 +1,20 @@
 package setup
 
-import "context"
+import (
+	"context"
+	"strings"
+	"time"
+)
 
 // The Google Cloud APIs her project enables, in one page of Google's (the console's enable flow).
 const enableAPIs = "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com,tasks.googleapis.com," +
 	"photoslibrary.googleapis.com,photospicker.googleapis.com,youtube.googleapis.com"
 
-// Integrations are what Nina can be given, in the order a new machine takes them: her voice's key first
-// (without it she cannot speak, and the rest is narrated), then her Google project and what is made in it,
-// then her channels.
+// Integrations are what Nina can be given. Her settings page shows two (the user, 2026-11-28): Google, its
+// services by the person's choice, and WhatsApp; the rest stay for a machine's own setup (hidden).
 func Integrations() []Integration {
 	return []Integration{
-		{ID: "gemini", Title: "Gemini key", Why: "her voice, her ears and her tasks: without it she cannot talk",
+		{ID: "gemini", Title: "Gemini key", Hidden: true, Why: "her voice, her ears and her tasks: without it she cannot talk",
 			Steps: []Step{{
 				ID: "key", Title: "A Gemini API key", Input: "secret", URL: "https://aistudio.google.com/apikey",
 				Text: "In AI Studio: Create API key, copy it, paste it here.",
@@ -19,7 +22,7 @@ func Integrations() []Integration {
 					"choose your Nina project if you made one, or let it make one, then copy the key and paste it into my settings.",
 				Check: checkGemini, Save: saveKey(func(p Paths) string { return p.Gemini }, ""),
 			}}},
-		{ID: "google_project", Title: "Google Cloud project", Why: "the one project her Google sign-in and her YouTube key are made in",
+		{ID: "google_project", Title: "Google Cloud project", Hidden: true, Why: "the one project her Google sign-in and her YouTube key are made in",
 			Status: func(ctx context.Context, s *Setup) Result {
 				if s.declared("google_project") {
 					return Result{OK: true, Detail: "made (your word: it is checked when her sign-in uses it)"}
@@ -55,21 +58,32 @@ func Integrations() []Integration {
 					Say: "On the Audience page, press Publish app and confirm. While an app is in testing, Google ends its sign-ins after seven days, and I would lose your calendar every week. " +
 						"Publishing does not make anything public: it is still only your account. Press Done when it says In production."},
 			}},
-		{ID: "google", Title: "Google account", Why: "her calendar and tasks, her photo albums, without Home Assistant",
-			Needs: []string{"google_project"}, Status: now(checkGoogle),
+		{ID: "google", Title: "Google", Why: "your calendar, tasks and photos, YouTube's search and Gemini: the ones you choose",
+			Status: googleStatus,
 			Steps: []Step{
-				{ID: "client", Title: "Her OAuth client", Input: "client", URL: "https://console.cloud.google.com/auth/clients/create",
-					Text: "Web application, name Nina, redirect http://localhost:8765/, Create, Download JSON, paste it here (or pick one found).",
-					Say: "Now the key to your account: an OAuth client. On its page choose Web application and name it Nina. Under Authorized redirect URIs press Add URI " +
-						"and type http colon slash slash localhost colon eight seven six five slash. Press Create, then Download JSON. Open that file and paste all of it into my settings. " +
-						"If you made one before, you can pick it from the list instead.",
+				{ID: "services", Title: "What I may use", Input: "services",
+					Text:  "Tick the Google services I may use. Gmail is not available yet.",
+					Say:   "Choose which of your Google services I may use, then press Next. Gmail is not available yet: Google keeps sending mail for its partners.",
+					Check: checkServices},
+				{ID: "client", Title: "Google's personal setup", Input: "client", When: (*Setup).needsSignIn, Page: personalPage,
+					Text: "One Google page makes the project and my client: Nina, AI-powered agent ticked, Continue; copy the client ID and secret here.",
+					Say: "On Google's personal setup page, choose a project or create one named Nina, name the client Nina, keep Use this client for an AI-powered agent ticked, " +
+						"accept the policy and press Continue. Then copy the client ID and the client secret into my settings.",
 					Check: checkClient, Save: saveClient},
-				{ID: "signin", Title: "Sign in with Google", Input: "signin",
-					Text: "Sign in: allow every box. If it says the app is not verified: Advanced, Go to Nina.",
-					Say: "Press Sign in with Google, choose your account and allow every box. If Google says the app is not verified, press Advanced, then Go to Nina.",
+				{ID: "apis", Title: "Enable the rest", When: func(s *Setup) bool { return len(s.moreAPIs()) > 0 }, Page: apisPage,
+					Text: "For Photos, YouTube or Gemini: check the project is yours, Next, Enable; then Done.",
+					Say:  "This page enables the APIs for the services you chose beyond the calendar and tasks. Check that the project is the one you just made, press Next, then Enable, and come back to press Done."},
+				{ID: "signin", Title: "Sign in with Google", Input: "signin", When: (*Setup).needsSignIn,
+					Text:  "Sign in: allow every box. If it says the app is not verified: Advanced, Go to Nina.",
+					Say:   "Press Sign in with Google, choose your account and allow every box. If Google says the app is not verified, press Advanced, then Go to Nina.",
 					Check: checkGoogle},
+				{ID: "key", Title: "An API key", Input: "secret", When: (*Setup).needsKey, URL: "https://console.cloud.google.com/apis/credentials",
+					Text: "Credentials: Create credentials, API key; copy it and paste it here. One key serves YouTube and Gemini.",
+					Say: "For YouTube and Gemini I need an API key from the same project. On the Credentials page press Create credentials, then API key, " +
+						"copy it and paste it into my settings.",
+					Check: checkKeys, Save: saveKeys},
 			}},
-		{ID: "youtube", Title: "YouTube key", Why: "videos found by search on her screen", Needs: []string{"google_project"}, Optional: true,
+		{ID: "youtube", Title: "YouTube key", Hidden: true, Why: "videos found by search on her screen", Needs: []string{"google_project"}, Optional: true,
 			Steps: []Step{{
 				ID: "key", Title: "A YouTube API key", Input: "secret", URL: "https://console.cloud.google.com/apis/credentials",
 				Text: "Create credentials, API key; restrict it to the YouTube Data API v3; copy, paste here.",
@@ -77,7 +91,7 @@ func Integrations() []Integration {
 					"tick YouTube Data API v3, and save. Then copy the key and paste it into my settings.",
 				Check: checkYouTube, Save: saveKey(func(p Paths) string { return p.YouTube }, ""),
 			}}},
-		{ID: "search", Title: "Web search", Why: "what she finds on the web: her own search engine first, then Google's through Gemini", Optional: true,
+		{ID: "search", Title: "Web search", Hidden: true, Why: "what she finds on the web: her own search engine first, then Google's through Gemini", Optional: true,
 			Status: func(ctx context.Context, s *Setup) Result {
 				if r := checkSearXNG(ctx, s, ""); r.OK {
 					return r
@@ -94,7 +108,7 @@ func Integrations() []Integration {
 					"If you have none, skip this: Gemini's search is enough.",
 				Check: checkSearXNG,
 			}}},
-		{ID: "openrouter", Title: "OpenRouter key", Why: "backup models for her tasks when Google's are busy", Optional: true,
+		{ID: "openrouter", Title: "OpenRouter key", Hidden: true, Why: "backup models for her tasks when Google's are busy", Optional: true,
 			Steps: []Step{{
 				ID: "key", Title: "An OpenRouter key", Input: "secret", URL: "https://openrouter.ai/settings/keys",
 				Text: "Create key, name Nina, set a weekly limit, copy it at once, paste here.",
@@ -111,7 +125,7 @@ func Integrations() []Integration {
 					"When it is linked I will say so.",
 				Check: checkWhatsApp,
 			}}},
-		{ID: "home_assistant", Title: "Home Assistant", Why: "the home's devices and sensors (lights, climate, music, presence)", Optional: true,
+		{ID: "home_assistant", Title: "Home Assistant", Hidden: true, Why: "the home's devices and sensors (lights, climate, music, presence)", Optional: true,
 			Steps: []Step{{
 				ID: "token", Title: "A long-lived token", Input: "secret", URL: "{hass}/profile/security",
 				Text: "Long-lived access tokens: Create token, name Nina, copy it at once, paste here.",
@@ -136,4 +150,113 @@ func checkWhatsApp(_ context.Context, s *Setup, _ string) Result {
 // now is a step's check as an integration's status (what is there now).
 func now(check func(context.Context, *Setup, string) Result) func(context.Context, *Setup) Result {
 	return func(ctx context.Context, s *Setup) Result { return check(ctx, s, "") }
+}
+
+// personalPage: Google's personal-mode onboarding (one page: the project, the Workspace APIs and their MCP
+// services, an OAuth client for an AI-powered agent, no consent screen to set up): a Desktop client, so its
+// sign-in's loopback needs no redirect registered
+func personalPage(*Setup) string {
+	return "https://console.cloud.google.com/auth/overview/personal?apis=ws,wsmcp,tasksmcp&clientType=desktop&isAgent=true"
+}
+
+// apisPage: the console's enable flow for the chosen services' APIs beyond personal mode's
+func apisPage(s *Setup) string {
+	return "https://console.cloud.google.com/flows/enableapi?apiid=" + strings.Join(s.moreAPIs(), ",")
+}
+
+func checkServices(_ context.Context, s *Setup, _ string) Result {
+	var titles []string
+	for _, id := range s.Chosen() {
+		sv, _ := service(id)
+		titles = append(titles, sv.Title)
+	}
+	if len(titles) == 0 {
+		return Result{Detail: "nothing chosen", Hint: "Tick at least one of the services."}
+	}
+	return Result{OK: true, Detail: "chosen: " + strings.Join(titles, ", "), Say: "You chose " + andList(titles) + "."}
+}
+
+// checkKeys: the chosen key services (YouTube, Gemini) answer with the key given, or with the ones she has
+func checkKeys(ctx context.Context, s *Setup, value string) Result {
+	var ok, bad []string
+	var hint string
+	for _, c := range []struct {
+		id    string
+		check func(context.Context, *Setup, string) Result
+	}{{"youtube", checkYouTube}, {"gemini", checkGemini}} {
+		if !s.chose(c.id) {
+			continue
+		}
+		r := c.check(ctx, s, value)
+		if r.OK {
+			ok = append(ok, r.Detail)
+		} else {
+			bad = append(bad, r.Detail)
+			hint = firstOf(hint, r.Hint)
+		}
+	}
+	if len(bad) > 0 {
+		return Result{Detail: strings.Join(append(ok, bad...), "; "), Hint: hint}
+	}
+	return Result{OK: true, Detail: strings.Join(ok, "; ")}
+}
+
+// saveKeys: the key kept for YouTube; for Gemini only where the key she has does not work (a key already
+// allocated is kept: her voice runs on it)
+func saveKeys(s *Setup, v string) error {
+	if s.chose("youtube") {
+		if err := writeFile(s.P.YouTube, []byte(v+"\n")); err != nil {
+			return err
+		}
+	}
+	if s.chose("gemini") {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if !checkGemini(ctx, s, "").OK {
+			if err := writeFile(s.P.Gemini, []byte(v+"\n")); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// googleStatus: each part the chosen services need, set and working
+func googleStatus(ctx context.Context, s *Setup) Result {
+	var parts []string
+	if s.needsSignIn() {
+		r := checkGoogle(ctx, s, "")
+		if !r.OK {
+			return r
+		}
+		parts = append(parts, r.Detail)
+	}
+	if s.needsKey() {
+		r := checkKeys(ctx, s, "")
+		if !r.OK {
+			return r
+		}
+		parts = append(parts, r.Detail)
+	}
+	if len(parts) == 0 {
+		return Result{Detail: "no Google service chosen"}
+	}
+	return Result{OK: true, Detail: strings.Join(parts, "; ")}
+}
+
+func andList(xs []string) string {
+	switch len(xs) {
+	case 0:
+		return "nothing"
+	case 1:
+		return xs[0]
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
+
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

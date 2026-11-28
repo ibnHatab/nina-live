@@ -138,8 +138,8 @@ func active(s *Setup) map[string]any { a, _ := view(s)["active"].(map[string]any
 func TestTheSunnyDay(t *testing.T) {
 	s, _, said := machine(t, "")
 	do(t, s, "setup_status", "")
-	want := map[string]bool{"gemini": true, "openrouter": true, "home_assistant": true, "search": true,
-		"youtube": false, "google": false, "google_project": false, "whatsapp": false}
+	// her settings page shows two: Google (not signed in on this machine) and WhatsApp (not linked)
+	want := map[string]bool{"google": false, "whatsapp": false}
 	if got := status(s); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("status %v\nwant %v", got, want)
 	}
@@ -246,19 +246,28 @@ func TestTheProjectInOneStep(t *testing.T) {
 	}
 }
 
-// TestTheGoogleSignIn: the client pasted is kept; the sign-in's redirect gives the refresh token, kept,
-// and each of her Google APIs answers with it.
+// TestTheGoogleSignIn: the services chosen; Google's personal setup's client pasted (its ID and secret) and
+// kept; the rest of the APIs; the sign-in's redirect gives the refresh token for the chosen services' scopes,
+// kept, and each chosen service answers with it.
 func TestTheGoogleSignIn(t *testing.T) {
-	s, dir, said := machine(t, strings.Join(Scopes, " "))
+	s, dir, said := machine(t, strings.Join(Scopes[:5], " "))
 	do(t, s, "setup_add", "google")
-	if c := active(s)["clients"]; c != nil {
-		t.Errorf("no clients yet: %v", c)
+	if r := active(s)["result"].(map[string]any); r["ok"] != true || r["detail"] != "chosen: Calendar, Tasks, Photos" {
+		t.Errorf("the services chosen by default: %v", r)
+	}
+	if (*said)[0] != "You chose Calendar, Tasks and Photos. Press Next to keep it." {
+		t.Errorf("said: %q", *said)
+	}
+	do(t, s, "setup_next", "")
+	cur := active(s)["current"].(map[string]any)
+	if cur["id"] != "client" || !strings.Contains(cur["url"].(string), "auth/overview/personal") || !strings.Contains(cur["url"].(string), "isAgent=true") {
+		t.Errorf("the client's step: %v", cur)
 	}
 	do(t, s, "setup_value", `{"nope":1}`)
 	if r := active(s)["result"].(map[string]any); r["ok"] != false {
 		t.Errorf("not a client: %v", r)
 	}
-	cl := fmt.Sprintf(`{"web":{"client_id":"id-1.apps","client_secret":"sec-1","redirect_uris":["http://localhost:%d/"]}}`, s.SignInPort)
+	cl := `{"installed":{"client_id":"id-1.apps","client_secret":"sec-1"}}` // as her screen makes it of the two fields
 	do(t, s, "setup_value", cl)
 	if b, _ := os.ReadFile(filepath.Join(dir, "google-oauth-client.json")); string(b) != cl {
 		t.Errorf("the client not kept: %q", b)
@@ -267,10 +276,16 @@ func TestTheGoogleSignIn(t *testing.T) {
 		t.Error("restart offered for an OAuth client")
 	}
 	do(t, s, "setup_next", "")
+	cur = active(s)["current"].(map[string]any)
+	if cur["id"] != "apis" || cur["url"] != "https://console.cloud.google.com/flows/enableapi?apiid=photoslibrary.googleapis.com,photospicker.googleapis.com" {
+		t.Errorf("the rest of the APIs: %v", cur)
+	}
+	do(t, s, "setup_done", "")
 	do(t, s, "setup_signin", "")
 	si := active(s)["signin"].(map[string]any)
 	u, _ := url.Parse(si["url"].(string))
-	if u.Query().Get("redirect_uri") != fmt.Sprintf("http://localhost:%d/", s.SignInPort) || u.Query().Get("access_type") != "offline" {
+	if u.Query().Get("redirect_uri") != fmt.Sprintf("http://localhost:%d/", s.SignInPort) || u.Query().Get("access_type") != "offline" ||
+		u.Query().Get("scope") != strings.Join(Scopes[:5], " ") {
 		t.Fatalf("the sign-in's page: %s", u)
 	}
 	if b, _ := json.Marshal(s.View()); strings.Contains(string(b), "sec-1") {
@@ -292,10 +307,7 @@ func TestTheGoogleSignIn(t *testing.T) {
 	if r := active(s)["result"].(map[string]any); r["ok"] != true || r["detail"] != "my Google account works: calendar, tasks, photos" {
 		t.Errorf("signed in: %v", r)
 	}
-	if !strings.Contains((*said)[len(*said)-1], "signed in") {
-		t.Errorf("said: %q", *said)
-	}
-	do(t, s, "setup_next", "")
+	do(t, s, "setup_next", "") // no key: neither YouTube nor Gemini chosen
 	if a := active(s); a["done"] != true || a["status"].(map[string]any)["ok"] != true {
 		t.Errorf("google done: %v", a)
 	}
@@ -303,6 +315,7 @@ func TestTheGoogleSignIn(t *testing.T) {
 	s2, _, _ := machine(t, "")
 	os.WriteFile(filepath.Join(s2.P.Clients, "made-before.json"), []byte(cl), 0o600)
 	do(t, s2, "setup_add", "google")
+	do(t, s2, "setup_next", "")
 	if c := active(s2)["clients"].([]any); len(c) != 1 || c[0] != "made-before.json" {
 		t.Errorf("clients found: %v", c)
 	}
@@ -312,12 +325,66 @@ func TestTheGoogleSignIn(t *testing.T) {
 	}
 }
 
+// TestChoosingServices: the steps follow the choice: no Photos, no sign-in for Photos' scopes; YouTube and
+// Gemini: their APIs and one key, written for YouTube and not over the Gemini key she has; Gmail not offered.
+func TestChoosingServices(t *testing.T) {
+	s, dir, _ := machine(t, "")
+	if _, err := s.Action("setup_services", "calendar,gmail"); err == nil || !strings.Contains(err.Error(), "partners") {
+		t.Errorf("gmail chosen: %v", err)
+	}
+	if got := s.Chosen(); fmt.Sprint(got) != "[calendar tasks photos]" {
+		t.Errorf("a refused choice changed it: %v", got)
+	}
+	do(t, s, "setup_services", "calendar, youtube,gemini")
+	if fmt.Sprint(s.scopes()) != "[https://www.googleapis.com/auth/calendar.events]" {
+		t.Errorf("scopes: %v", s.scopes())
+	}
+	do(t, s, "setup_add", "google")
+	do(t, s, "setup_next", "")
+	os.WriteFile(s.P.Client, []byte(`{"installed":{"client_id":"id-3","client_secret":"sec-3"}}`), 0o600)
+	do(t, s, "setup_check", "")
+	do(t, s, "setup_next", "")
+	if u := active(s)["current"].(map[string]any)["url"]; u != "https://console.cloud.google.com/flows/enableapi?apiid=youtube.googleapis.com,generativelanguage.googleapis.com" {
+		t.Errorf("the APIs page: %v", u)
+	}
+	do(t, s, "setup_done", "")
+	do(t, s, "setup_skip", "") // the sign-in skipped: on to the key
+	a := active(s)
+	if a["current"].(map[string]any)["id"] != "key" || a["result"].(map[string]any)["ok"] != false {
+		t.Fatalf("the key's step (no YouTube key yet): %v", a)
+	}
+	do(t, s, "setup_value", newKey)
+	if b, _ := os.ReadFile(filepath.Join(dir, "youtube.key")); string(b) != newKey+"\n" {
+		t.Errorf("youtube's key: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "gemini.key")); string(b) != goodKey+"\n" {
+		t.Errorf("the Gemini key she has replaced: %q", b)
+	}
+	v := view(s) // the services with what is chosen; the hidden integrations not listed
+	if len(v["integrations"].([]any)) != 2 {
+		t.Errorf("listed: %v", v["integrations"])
+	}
+	on := map[string]bool{}
+	for _, e := range v["google_services"].([]any) {
+		m := e.(map[string]any)
+		on[m["id"].(string)] = m["on"] == true
+		if m["id"] == "gmail" && m["off"] == nil {
+			t.Error("gmail offered")
+		}
+	}
+	if fmt.Sprint(on) != "map[calendar:true gemini:true gmail:false photos:false tasks:false youtube:true]" {
+		t.Errorf("services view: %v", on)
+	}
+}
+
 // TestAScopeNotGiven: a box left unticked on Google's consent page: no token kept, the person told.
 func TestAScopeNotGiven(t *testing.T) {
 	s, dir, said := machine(t, Scopes[0]+" "+Scopes[1])
 	os.WriteFile(s.P.Client, []byte(`{"installed":{"client_id":"id-2","client_secret":"sec-2"}}`), 0o600)
 	do(t, s, "setup_add", "google")
-	do(t, s, "setup_next", "")
+	do(t, s, "setup_next", "") // the services
+	do(t, s, "setup_next", "") // the client (the file kept)
+	do(t, s, "setup_done", "") // the rest of the APIs
 	do(t, s, "setup_signin", "")
 	u, _ := url.Parse(active(s)["signin"].(map[string]any)["url"].(string))
 	http.Get(fmt.Sprintf("http://127.0.0.1:%d/?state=%s&code=the-code", s.SignInPort, u.Query().Get("state")))
