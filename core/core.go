@@ -1041,8 +1041,10 @@ func (k *Core) openCognition(ctx context.Context, c *Config, hosts *map[string]m
 	cw.Say = func(words string) {
 		c.Log.Append(c.Now(), "cognition", "say", "", "", map[string]any{"words": words}, 1)
 		if v := k.Voice(); v != nil {
-			v.Note("info", fmt.Sprintf("Something the person asked you to keep in mind is due to be brought up now: %q. "+
-				"Mention it in a few words at your next turn.", words))
+			// important: the person asked for it (an info note is only context while she is awake); the voice
+			// says it on a free floor, after the person's chance to go on (fsttm's NOTE)
+			v.Note("important", fmt.Sprintf("Something the person asked you to keep in mind, to bring up when you next "+
+				"talk: %q. Say it now in a few words.", words))
 		}
 	}
 	if *hosts == nil {
