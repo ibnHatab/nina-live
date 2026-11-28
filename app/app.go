@@ -30,6 +30,7 @@ import (
 	nlog "github.com/ibnHatab/nina-live/log"
 	"github.com/ibnHatab/nina-live/mcp"
 	"github.com/ibnHatab/nina-live/music"
+	"github.com/ibnHatab/nina-live/setup"
 	"github.com/ibnHatab/nina-live/tasks"
 	"github.com/ibnHatab/nina-live/websearch"
 	"github.com/ibnHatab/nina-live/whatsapp"
@@ -175,6 +176,9 @@ type Backends struct {
 	Presence func(ctx context.Context, set func(core.Presence))
 	Albums   func(ctx context.Context) ([]string, error) // the photo albums her screen can show
 	Photos   Photos                                      // her albums with the Picker (add_photos: photos.go)
+	// HassURL, HassToken: the deployment's Home Assistant and its token's file, for her setup to check
+	// (acasa's hass:); "": no Home Assistant to set up
+	HassURL, HassToken string
 }
 
 // Named is a list, a calendar or a weather source by its id and its name.
@@ -199,6 +203,8 @@ type App struct {
 	D     *dialogue.Dialogue
 	wa    *whatsapp.Client
 	waLog func(string, map[string]any)
+	// Setup: her guided setup (setup/): her keys, her Google account, her channels, from her settings
+	Setup *setup.Setup
 }
 
 // LoadConfig reads nina.yaml into the persona's Config (yaml: its own sections; a deployment reads its own).
@@ -410,7 +416,12 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		d.OnDuck = func(bool) { k.Music.Follow() } // a person over her: the music down with her at once
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
+	a.Setup = newSetup(c, dcfg.Key, b, d, a, L)
+	k.SetupView = a.Setup.View
 	d.OnAction = func(action, arg string) (bool, error) { // her settings from her screens: name, persona, temperament
+		if ok, err := a.Setup.Action(action, arg); ok { // her guided setup's (setup_…)
+			return true, err
+		}
 		if action == "pick_photos" { // a button's add_photos (its arg: the album; "" Nina's gallery)
 			if pick == nil {
 				return true, fmt.Errorf("photos: not enabled in her config (services.photos: google)")
@@ -462,6 +473,7 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 	go logDialogue(ctx, d, L, k.Floor, k.Woke)
+	go func() { a.Setup.Refresh(ctx); k.SetupChanged() }() // what this machine has: each integration checked
 	if err := d.StartPlugins(ctx); err != nil {
 		return err
 	}

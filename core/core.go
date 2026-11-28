@@ -89,16 +89,18 @@ type Config struct {
 
 type Core struct {
 	strainState
-	Cfg    Config
-	Log    *nlog.Log
-	World  *world.World
-	Home   *metishome.Service
-	Tasks  *tasks.Runner
-	Timers *timers.Host
-	Agenda *agenda.Host
-	Music  *music.Host
-	Habits *habits.Host
-	Glow   *glow.Host
+	// SetupView: her guided setup as her screens show it (the settings event's setup; nil: none)
+	SetupView func() map[string]any
+	Cfg       Config
+	Log       *nlog.Log
+	World     *world.World
+	Home      *metishome.Service
+	Tasks     *tasks.Runner
+	Timers    *timers.Host
+	Agenda    *agenda.Host
+	Music     *music.Host
+	Habits    *habits.Host
+	Glow      *glow.Host
 	// Cognition: the cognition members' world (the redesign's W4), when the composition has them
 	Cognition *cognition.World
 	Taste     *taste.World // the semantic world's taste, as the hosts use it
