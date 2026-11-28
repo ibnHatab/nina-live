@@ -111,6 +111,8 @@ type Config struct {
 		Keep    []string      `yaml:"keep"`     // chats kept: self, names, all (none: all)
 	} `yaml:"whatsapp"`
 	Radar *bool `yaml:"radar"` // the radar's distance aims her voice (default true); false where her speakers are not where it is
+	// Services: the far ends she reaches directly, part by part (services.go: the agenda on Google, the weather on Met.no)
+	Services Services `yaml:"services"`
 	// Cards: the voice's home tools, "" one per package, "two" director and attended (cards.go, the redesign's step 5)
 	Cards string       `yaml:"cards"`
 	MCP   []mcp.Server `yaml:"mcp"` // MCP servers whose tools her tasks use (mcp/): Home Assistant's first
@@ -172,6 +174,7 @@ type Backends struct {
 	// Presence runs until ctx ends: the radar's presence and distance (her voice's aim)
 	Presence func(ctx context.Context, set func(core.Presence))
 	Albums   func(ctx context.Context) ([]string, error) // the photo albums her screen can show
+	Photos   Photos                                      // her albums with the Picker (add_photos: photos.go)
 }
 
 // Named is a list, a calendar or a weather source by its id and its name.
@@ -229,8 +232,11 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{c: c, b: b, L: L}
 	fail := func(err error) (*App, error) { L.Close(); return nil, err }
+	if b, err = Direct(c, b); err != nil { // the config's direct services over the deployment's backends
+		return fail(err)
+	}
+	a := &App{c: c, b: b, L: L}
 
 	ents := agenda.Default
 	if len(c.Agenda) > 0 {
@@ -308,6 +314,20 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 	yt, err := youtube.Load(expand(firstOf(c.YouTube.Key, "~/.config/nina/youtube.key")), c.YouTube.Playlists)
 	if err != nil {
 		stdlog.Printf("youtube: no API key (%v): her own playlists only, no search", err)
+	}
+	var pick *tasks.Tool
+	if b.Photos != nil { // add_photos: the Picker's QR code on her screens, the picked photos into her album
+		pt := pickTool(b.Photos, func(kind string, d map[string]any) {
+			if stageLog != nil {
+				stageLog(kind, d)
+			}
+		}, func(level, text string) {
+			if v := k.Voice(); v != nil {
+				v.Note(level, text)
+			}
+		})
+		pick = &pt
+		reads = append(reads, pt)
 	}
 	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
@@ -390,7 +410,20 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		d.OnDuck = func(bool) { k.Music.Follow() } // a person over her: the music down with her at once
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
-	d.OnAction = k.Action // her settings from her screens: name, persona, temperament
+	d.OnAction = func(action, arg string) (bool, error) { // her settings from her screens: name, persona, temperament
+		if action == "pick_photos" { // a button's add_photos (its arg: the album; "" Nina's gallery)
+			if pick == nil {
+				return true, fmt.Errorf("photos: not enabled in her config (services.photos: google)")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if st, text := pick.Call(ctx, map[string]any{"album": arg}); st == "error" {
+				return true, errors.New(text)
+			}
+			return true, nil
+		}
+		return k.Action(action, arg)
+	}
 	stageLog = func(kind string, data map[string]any) { d.Log(kind, data) }
 	return a, nil
 }
@@ -621,7 +654,7 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue
 			}
-			if _, ok := e["png"]; ok && kind == "wa_status" { // a WhatsApp link's QR: on her screens, not in the log
+			if _, ok := e["png"]; ok && (kind == "wa_status" || kind == "photos_pick") { // a link's QR: on her screens, not in the log
 				c := map[string]any{}
 				for k, v := range e {
 					if k != "png" {
