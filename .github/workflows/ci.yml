@@ -1,0 +1,51 @@
+# The runtime's tests, level 2 (the user, 2026-11-28): nina-live's Go tests with fakes, no LLM, on every push.
+# They build her composition's image (the catalog beside, as on a machine: catalog/domains links to
+# ../../nina-narratives/devices) and run the rules through the C++ runtime (cgo). Real Nina in the loop is
+# the acceptance at a release tag, on Pascal, not here.
+name: ci
+
+on:
+  push:
+    branches: [main, 'ci-*']   # ci-*: the workflow's own work, tried before main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  METIS_LANG: e6b115099fc25d498d597e88fa3a482aa9136a48   # metisc and libmetis_rt (as the catalog's certification)
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: nina-live}
+      - uses: actions/checkout@v4
+        with: {repository: ibnHatab/nina-narratives, ref: main, path: nina-narratives}
+      - uses: actions/checkout@v4
+        with: {repository: metis-lang-dev/metis-lang, ref: '${{ env.METIS_LANG }}', path: perotheia-packages/metis-lang}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: nina-live/go.mod, cache-dependency-path: nina-live/go.sum}
+      - name: metisc (OCaml, stdlib only)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ocaml-nox
+          make -s -C perotheia-packages/metis-lang/src metisc
+      - name: build (the image against its golden, the persona)
+        working-directory: nina-live
+        env: {GOWORK: 'off', METIS_LANG_DIR: '${{ github.workspace }}/perotheia-packages/metis-lang'}
+        run: ./build.sh
+      - name: vet
+        working-directory: nina-live
+        env: {GOWORK: 'off', METIS_LANG_DIR: '${{ github.workspace }}/perotheia-packages/metis-lang'}
+        run: ./build.sh vet ./...
+      - name: test
+        working-directory: nina-live
+        env: {GOWORK: 'off', METIS_LANG_DIR: '${{ github.workspace }}/perotheia-packages/metis-lang'}
+        run: ./build.sh test -count=1 ./...
