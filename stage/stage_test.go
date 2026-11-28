@@ -12,7 +12,7 @@ import (
 func TestScreenToolSteps(t *testing.T) {
 	var got []map[string]any
 	tool := Tool(nil, nil, func(ev map[string]any) { got = append(got, ev) })
-	for _, s := range []string{"next", "previous", "pause", "play", "close"} {
+	for _, s := range []string{"next", "previous", "pause", "play", "full", "window", "close"} {
 		got = nil
 		st, _ := tool.Call(context.Background(), map[string]any{"show": s})
 		if st != "done" || len(got) != 1 || got[0]["show"] != s {

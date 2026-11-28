@@ -21,11 +21,11 @@ func Tool(yt *youtube.Client, albums func(context.Context) ([]string, error), st
 		Description: "Show something large on Nina's screen, over its right side, until it is closed: videos (her own playlist; " +
 			"or a YouTube search, from any channel: query; or a playlist by its name: playlist), photos (the gallery, or an album " +
 			"by its name: album), or close what is shown; while something is shown: next, previous, pause or play on it (the next " +
-			"video or photo: next, not home_media). Only when the person asks to see videos or photos, to step through or pause " +
-			"them, or to close them.",
+			"video or photo: next, not home_media), full to fill the whole screen with it, window to put it back in its card. Only " +
+			"when the person asks to see videos or photos, to step through, pause, enlarge or shrink them, or to close them.",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
-			"show": map[string]any{"type": "string", "enum": []any{"videos", "photos", "close", "next", "previous", "pause", "play"},
-				"description": "videos, photos, close; or next, previous, pause, play on what is shown"},
+			"show": map[string]any{"type": "string", "enum": []any{"videos", "photos", "close", "next", "previous", "pause", "play", "full", "window"},
+				"description": "videos, photos, close; or next, previous, pause, play on what is shown; full: what is shown over the whole screen, window: back to its card"},
 			"query":    map[string]any{"type": "string", "description": "videos: what to search YouTube for (a topic, a channel, a song)"},
 			"playlist": map[string]any{"type": "string", "description": "videos: a playlist's name (hers, or a public one)"},
 			"album":    map[string]any{"type": "string", "description": "photos: an album's name"},
@@ -36,10 +36,10 @@ func Tool(yt *youtube.Client, albums func(context.Context) ([]string, error), st
 			case "close":
 				stage(map[string]any{"show": "close"})
 				return "done", "closed"
-			case "next", "previous", "pause", "play": // on what the stage shows (its ⏭ ⏮ ⏸ ▶)
+			case "next", "previous", "pause", "play", "full", "window": // on what the stage shows (its ⏭ ⏮ ⏸ ▶ ⤢)
 				stage(map[string]any{"show": str("show")})
 				return "done", map[string]string{"next": "the next one is on the screen", "previous": "the previous one is on the screen",
-					"pause": "paused", "play": "playing"}[str("show")]
+					"pause": "paused", "play": "playing", "full": "it fills the screen now", "window": "back in its card"}[str("show")]
 			case "photos":
 				ev := map[string]any{"show": "photos"}
 				al := str("album")
