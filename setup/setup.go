@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ibnHatab/nina-live/creds"
 )
 
 // Result is what a check found.
@@ -54,6 +56,10 @@ type Step struct {
 	// Shortcut: the words of a button that completes the integration here (the project made already:
 	// the rest of its steps are for making one)
 	Shortcut string
+	// When: the step applies (nil: always): a step for what the person did not choose is passed by
+	When func(s *Setup) bool
+	// Page: the step's page made from the person's choices (nil: URL)
+	Page func(s *Setup) string
 }
 
 // Integration is one thing added: a key, an account, a channel.
@@ -62,6 +68,7 @@ type Integration struct {
 	Why       string   // what she does with it
 	Needs     []string // the integrations it builds on (Google's project before its keys)
 	Optional  bool
+	Hidden    bool // not on her settings page (kept for a machine's own setup: the page shows Google and WhatsApp)
 	Steps     []Step
 	// Status: set and working now (nil: by its last step's check)
 	Status func(ctx context.Context, s *Setup) Result
@@ -90,6 +97,9 @@ type Setup struct {
 	Log func(kind string, data map[string]any)
 	// SignInPort: the loopback port of Google's redirect (http://localhost:PORT/, the OAuth client's)
 	SignInPort int
+	// Creds: her Google credential (creds.Store at P.Google), the one holder of the token: the setup's
+	// sign-in saves to it, its checks and sign-out go through it (the app gives the Store her backends use)
+	Creds *creds.Store
 
 	List []Integration
 
@@ -100,6 +110,8 @@ type Setup struct {
 	restart bool // a key written: she reads it at her next start
 	signin  *signin
 	said    map[string]bool // integrations done by the person's word (their steps have no check: a project made)
+	cmu     sync.Mutex      // chosen's own (read from steps' When and Page, under mu or not)
+	chosen  []string        // the Google services the person lets her use (Services' ids)
 }
 
 type session struct {
@@ -113,9 +125,31 @@ type session struct {
 // New is the setup for these paths, with the integrations Nina knows.
 func New(p Paths) *Setup {
 	s := &Setup{P: p, E: Google(), HTTP: &http.Client{Timeout: 15 * time.Second}, SignInPort: 8765,
-		status: map[string]Result{}, narrate: true, said: map[string]bool{}}
+		status: map[string]Result{}, narrate: true, said: map[string]bool{}, chosen: []string{"calendar", "tasks", "photos"}}
 	s.List = Integrations()
+	s.Creds = creds.Open(expand(p.Google))
+	s.Creds.Want = s.scopes
 	return s
+}
+
+// store is her credential with the setup's endpoints (the SITL's or a test's fake Google, set after New).
+func (s *Setup) store() *creds.Store {
+	if s.E.GoogleToken != "" {
+		s.Creds.TokenURL = s.E.GoogleToken
+	}
+	if s.E.GoogleRevoke != "" {
+		s.Creds.RevokeURL = s.E.GoogleRevoke
+	}
+	if s.HTTP != nil {
+		s.Creds.HTTP = s.HTTP
+	}
+	return s.Creds
+}
+
+// UseCreds: the credential store her Google backends use (the same Store, so a sign-in reaches them).
+func (s *Setup) UseCreds(c *creds.Store) {
+	c.Want = s.scopes
+	s.Creds = c
 }
 
 func (s *Setup) find(id string) (*Integration, bool) {
@@ -173,6 +207,17 @@ func (s *Setup) act(ctx context.Context, verb, arg string) error {
 		s.mu.Unlock()
 		s.stopSignIn()
 		return nil
+	case "services": // the Google services she may use ("calendar,tasks,photos")
+		if err := s.Choose(strings.Split(arg, ",")); err != nil {
+			return err
+		}
+		s.log("setup", map[string]any{"verb": "services", "integration": "google", "services": s.Chosen()})
+		if in, _, n, err := s.current(); err == nil && in.Steps[n].Input == "services" {
+			s.check(ctx, in, n, "")
+		}
+		return nil
+	case "signout": // Google's sign-in revoked, its file kept as .prev
+		return s.signOut(ctx)
 	case "restart":
 		s.mu.Lock()
 		need := s.restart
@@ -226,8 +271,11 @@ func (s *Setup) act(ctx context.Context, verb, arg string) error {
 		s.next(ctx, in)
 	case "back":
 		s.mu.Lock()
-		if st.Step > 0 {
+		for st.Step > 0 {
 			st.Step--
+			if w := in.Steps[st.Step].When; w == nil || w(s) {
+				break
+			}
 		}
 		st.Result = nil
 		s.mu.Unlock()
@@ -268,6 +316,10 @@ func (s *Setup) enter(ctx context.Context) {
 		return
 	}
 	step := in.Steps[n]
+	if step.When != nil && !step.When(s) { // not for what the person chose: on to the next
+		s.next(ctx, in)
+		return
+	}
 	if step.Check != nil && step.Input != "signin" {
 		// what is there checked first: when it works, that is what she says (the sunny day), not how to make it
 		if r := s.check(ctx, in, n, ""); r.OK {
@@ -471,9 +523,12 @@ func (s *Setup) View() map[string]any {
 	defer s.mu.Unlock()
 	var list []map[string]any
 	for _, in := range s.List {
+		if in.Hidden {
+			continue
+		}
 		pages := make([]string, len(in.Steps)) // each step's page: her screen opens it with the click that goes there
 		for i, st := range in.Steps {
-			pages[i] = s.url(st.URL)
+			pages[i] = s.page(st)
 		}
 		e := map[string]any{"id": in.ID, "title": in.Title, "why": in.Why, "optional": in.Optional, "steps": len(in.Steps), "pages": pages}
 		if len(in.Needs) > 0 {
@@ -484,7 +539,7 @@ func (s *Setup) View() map[string]any {
 		}
 		list = append(list, e)
 	}
-	v := map[string]any{"integrations": list, "narrate": s.narrate, "restart": s.restart}
+	v := map[string]any{"integrations": list, "narrate": s.narrate, "restart": s.restart, "google_services": s.servicesView(), "google": s.googleView()}
 	if st := s.at; st != nil {
 		in, _ := s.find(st.ID)
 		a := map[string]any{"integration": in.ID, "title": in.Title, "step": st.Step, "of": len(in.Steps), "done": st.Done}
@@ -499,7 +554,7 @@ func (s *Setup) View() map[string]any {
 		} else if st.Step < len(in.Steps) {
 			step := in.Steps[st.Step]
 			a["current"] = map[string]any{"id": step.ID, "title": step.Title, "text": step.Text, "say": step.Say,
-				"url": s.url(step.URL), "input": step.Input, "shortcut": step.Shortcut, "manual": step.Check == nil}
+				"url": s.page(step), "input": step.Input, "shortcut": step.Shortcut, "manual": step.Check == nil}
 			if st.Result != nil {
 				a["result"] = *st.Result
 			}
@@ -513,6 +568,14 @@ func (s *Setup) View() map[string]any {
 		v["active"] = a
 	}
 	return v
+}
+
+// page: a step's page (made from the person's choices, or its URL); the caller may hold s.mu
+func (s *Setup) page(st Step) string {
+	if st.Page != nil {
+		return st.Page(s)
+	}
+	return s.url(st.URL)
 }
 
 func (s *Setup) url(u string) string {

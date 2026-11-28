@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/creds"
 	"github.com/ibnHatab/nina-live/services/google"
 	"github.com/ibnHatab/nina-live/services/weather"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
@@ -37,21 +39,31 @@ type Services struct {
 }
 
 // Direct puts the config's direct services into the backends (a part not configured keeps the one given).
-func Direct(c Config, b Backends) (Backends, error) {
+func Direct(c Config, b Backends) (Backends, error) { return DirectWith(c, b, nil) }
+
+// DirectWith is Direct with her Google credential (creds.Store, the one holder of the token; nil: one
+// opened at services.google.token).
+func DirectWith(c Config, b Backends, st *creds.Store) (Backends, error) {
 	s := c.Services
 	r := &mixed{base: b.Reader}
 	var lines []func(ctx context.Context) []line
 	var g *google.Client
 	if s.Agenda == "google" || s.Photos == "google" {
-		if s.Google.Token == "" {
-			return b, fmt.Errorf("services: google needs services.google.token")
+		if st == nil {
+			if s.Google.Token == "" {
+				return b, fmt.Errorf("services: google needs services.google.token")
+			}
+			st = creds.Open(expand(s.Google.Token))
+			if e := strings.TrimRight(s.Google.Endpoint, "/"); e != "" {
+				st.TokenURL, st.RevokeURL = e+"/token", e+"/revoke"
+			}
 		}
-		var err error
-		if g, err = google.Load(expand(s.Google.Token)); err != nil {
-			return b, err
+		if st.Token() == nil {
+			return b, fmt.Errorf("services: google: not signed in (%s): her setup's Google sign-in", st.Path)
 		}
+		g = google.FromSource(st)
 		if e := strings.TrimRight(s.Google.Endpoint, "/"); e != "" {
-			g.TokenURL, g.CalendarURL, g.TasksURL, g.PhotosURL, g.PickerURL = e+"/token", e+"/calendar", e+"/tasks", e+"/photos", e+"/picker"
+			g.CalendarURL, g.TasksURL, g.PhotosURL, g.PickerURL = e+"/calendar", e+"/tasks", e+"/photos", e+"/picker"
 		}
 	}
 	if s.Photos == "google" {
@@ -286,4 +298,35 @@ func (o *observer) Run(ctx context.Context, changed func(key, text string)) {
 		case <-o.poke:
 		}
 	}
+}
+
+// withChoice turns her Google backends on by the person's choice in her setup (kept in her log), without
+// editing her config: Calendar or Tasks chosen puts the agenda on Google, Photos her albums. Only with a
+// sign-in kept (st has a token), and only where her config names no backend for that part: what is not
+// chosen stays as before (Home Assistant's, or none). Taken at her start: a choice made later, at the next.
+func withChoice(c Config, chosen []string, st *creds.Store) Config {
+	if len(chosen) == 0 || st == nil || st.Token() == nil {
+		return c
+	}
+	has := map[string]bool{}
+	for _, id := range chosen {
+		has[id] = true
+	}
+	on := false
+	if (has["calendar"] || has["tasks"]) && c.Services.Agenda == "" {
+		c.Services.Agenda, on = "google", true
+		if len(c.Agenda) == 0 {
+			c.Agenda = agenda.GoogleDefault
+		}
+		if len(c.Services.Google.Calendars) == 0 {
+			c.Services.Google.Calendars = map[string]string{"primary": "your calendar"}
+		}
+	}
+	if has["photos"] && c.Services.Photos == "" {
+		c.Services.Photos, on = "google", true
+	}
+	if on {
+		c.Services.Google.Token = st.Path
+	}
+	return c
 }

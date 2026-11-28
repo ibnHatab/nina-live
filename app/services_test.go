@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ibnHatab/nina-live/creds"
 )
 
 type baseReader struct{}
@@ -52,5 +55,38 @@ func TestServicesAreSwitchesPartByPart(t *testing.T) {
 	c.Services.Agenda, c.Services.Photos = "", "google"
 	if _, err := Direct(c, b); err == nil {
 		t.Fatal("the photos on Google without a token")
+	}
+}
+
+// TestChoiceTurnsGoogleOn: the services chosen in her setup put the agenda and the albums on Google at her
+// start, only with a sign-in kept and only where her config names no backend; nothing chosen: as before.
+func TestChoiceTurnsGoogleOn(t *testing.T) {
+	dir := t.TempDir()
+	st := creds.Open(filepath.Join(dir, "google-token.json"))
+	var c Config
+	if got := withChoice(c, []string{"calendar", "photos"}, st); got.Services.Agenda != "" || got.Services.Photos != "" {
+		t.Fatalf("no sign-in: %+v", got.Services)
+	}
+	if err := st.Save(creds.Token{ClientID: "id", ClientSecret: "s", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	got := withChoice(c, []string{"calendar", "photos"}, st)
+	if got.Services.Agenda != "google" || got.Services.Photos != "google" || got.Services.Google.Token != st.Path ||
+		got.Agenda["my_tasks"] != "@default" || got.Services.Google.Calendars["primary"] == "" {
+		t.Fatalf("chosen: %+v %v", got.Services, got.Agenda)
+	}
+	if got := withChoice(c, []string{"tasks"}, st); got.Services.Photos != "" || got.Services.Agenda != "google" {
+		t.Fatalf("tasks only: %+v", got.Services)
+	}
+	c.Services.Agenda = "ha" // her config names one: kept
+	if got := withChoice(c, []string{"calendar"}, st); got.Services.Agenda != "ha" {
+		t.Fatalf("config's own kept: %+v", got.Services)
+	}
+	if got := withChoice(Config{}, nil, st); got.Services.Agenda != "" {
+		t.Fatalf("nothing chosen: %+v", got.Services)
+	}
+	b, err := DirectWith(withChoice(Config{}, []string{"photos"}, st), Backends{}, st)
+	if err != nil || b.Photos == nil || b.Albums == nil {
+		t.Fatalf("photos on Google: %v %v", b.Photos, err)
 	}
 }

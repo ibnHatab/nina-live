@@ -56,7 +56,7 @@ or a phone it needs Pascal's tailnet https (later).
 
 `setup_status`, `setup_add ID`, `setup_value KEY|CLIENT-JSON|file:NAME`, `setup_check`, `setup_done`
 (a step without a check, or the shortcut), `setup_next`, `setup_skip`, `setup_back`, `setup_close`,
-`setup_signin`, `setup_link`, `setup_say`, `setup_narrate on|off`, `setup_restart`.
+`setup_services IDS`, `setup_signin`, `setup_signout`, `setup_link`, `setup_say`, `setup_narrate on|off`, `setup_restart`.
 
 The settings event's `setup`:
 
@@ -67,9 +67,58 @@ The settings event's `setup`:
           result: {ok, detail, hint}, clients: [file names], signin: {url, redirect}}}
 ```
 
+## Google: the personal path, her credential, her choice (claudia, 2026-11-28)
+
+### What Google's personal setup shows (checked 2026-11-28, on the person's own account, not continued)
+
+`console.cloud.google.com/auth/overview/personal?apis=ws,wsmcp,tasksmcp&clientType=desktop&isAgent=true`
+opens "Personal mode onboarding": *"This will create an OAuth client that only works for you and does not
+require verification."* It offers Select Project / Create a new project (*"A project named
+personal-mode-app will be created automatically."*), Application type **Desktop app** (so `clientType=desktop`
+takes), the client's Name, *"Use this client for an AI-powered agent"*, and the checkbox *"I agree to the
+Google API Services: User Data Policy."* before Continue. The page says nothing of billing or a consent
+screen. Still to settle on an EMPTY test account (the person's own browser): what Continue creates, the
+client's ID and secret shown, whether the sign-in then warns, and whether its refresh token outlives 7 days
+(the token file records `granted`; check it on or after 2026-12-05 and write the dated result here).
+
+The client step accepts only a Desktop app client (the personal path's): a Web client pasted is refused, and
+a Web client kept from an older setup shows as not this step's, never as a ✓.
+
+### Her credential: package `creds`
+
+One `creds.Store` (at `services.google.token`, default `~/.config/nina/google-token.json`) is the only reader
+and writer of the token file. Her Google backends (`services/google.FromSource`), the setup's checks, sign-in
+and sign-out, `nina-photos` and `nina-google-auth` all go through it. It refreshes access tokens (one call an
+hour), learns the granted scopes from Google's answers, and reports `Health`: `ok`, `none`, `invalid_grant`,
+`scope_missing` (a chosen service's scope not granted), `error`. The file: chmod 600, written atomically, the
+one it replaces kept as `.prev`; JSON `{client_id, client_secret, refresh_token, scopes, account, granted}`
+(the first three as before). No token reaches her screens, her log, the rules or the LLMs: the Store gives
+access tokens to HTTP clients only.
+
+### The sign-in
+
+The loopback `http://localhost:8765/` (a Desktop client needs no registered redirect), with PKCE (S256),
+`access_type=offline`, `prompt=consent` and `include_granted_scopes=true`. It asks for the chosen services'
+scopes plus `openid email` (the account shown on the card). Signed in already with the same client, ticking a
+service asks only for its missing scopes; the grant kept is the union. On the tablet the card opens the page
+in its own browser (`NinaApp.open`), and the redirect comes back to the tablet's persona on its loopback.
+
+### The choice turns her backends on
+
+At her start (`app.New`), the services last chosen (her log, stream `setup`, kind `services`) put the agenda on
+Google (Calendar or Tasks: `services.agenda: google`, with `agenda.GoogleDefault` handles and the primary
+calendar when her config has none) and her albums on Google (Photos), only with a sign-in kept and only where
+her config names no backend. Nothing chosen, or no sign-in: as before (Home Assistant's, or none). A choice or
+sign-in made later takes effect at her next start (the page offers Restart).
+
+### Sign out
+
+`setup_signout`: the refresh token revoked at Google (`oauth2.googleapis.com/revoke`), the file kept as
+`.prev`, her screens told (`setup.google: {signed_in, account, scopes, granted, prev}`), Restart offered so her
+backends drop it.
+
 ## Not yet
 
 - Gmail (a restricted scope: Google's verification).
 - The sign-in from another device's browser (the tailnet's https redirect).
-- Switching her backends to Google (`services.agenda: google`, `photos: google`) from the page: her config
-  still says it (the agenda and photos stay on Home Assistant until it does).
+- The 7-day refresh-token result in personal mode (see above: on or after 2026-12-05).

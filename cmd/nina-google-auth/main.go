@@ -31,6 +31,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ibnHatab/nina-live/creds"
 )
 
 const scopes = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks " +
@@ -139,13 +141,10 @@ func main() {
 		}
 	}
 	p := expand(*out)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	// through creds, the one holder of her credential: chmod 600, the file it replaces kept as .prev
+	if err := creds.Open(p).Save(creds.Token{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RefreshToken: t.Refresh,
+		Scopes: strings.Fields(t.Scope), Granted: time.Now().UTC()}); err != nil {
 		log.Fatal(err)
 	}
-	f, _ := json.Marshal(map[string]string{"client_id": c.ClientID, "client_secret": c.ClientSecret, "refresh_token": t.Refresh})
-	if err := os.WriteFile(p, f, 0o600); err != nil {
-		log.Fatal(err)
-	}
-	os.Chmod(p, 0o600)
 	fmt.Printf("Written: %s (chmod 600). Nina reads it with services.google.token.\n", p)
 }

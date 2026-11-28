@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibnHatab/nina-live/creds"
 	"github.com/ibnHatab/nina-live/services/google"
 )
 
@@ -42,10 +43,11 @@ func main() {
 	token := fs.String("token", "~/.config/nina/google-token.json", "her credential file (nina-google-auth)")
 	album := fs.String("album", "Nina's gallery", "the album")
 	fs.Parse(os.Args[2:])
-	c, err := google.Load(expand(*token))
-	if err != nil {
-		log.Fatal(err)
+	st := creds.Open(expand(*token)) // the one holder of her credential
+	if st.Token() == nil {
+		log.Fatalf("no sign-in in %s (her setup's Google sign-in, or nina-google-auth)", st.Path)
 	}
+	c := google.FromSource(st)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	switch cmd {
