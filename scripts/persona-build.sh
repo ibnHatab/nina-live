@@ -36,9 +36,9 @@ fi
 
 M=$R/perotheia-packages/metis-lang/src
 if [ -z "${METISC:-}" ]; then
-  if [ ! -x "$M/metisc" ] || [[ "$moved" == *metis-lang* ]]; then
-    echo "== metisc"; make -s -C "$M" metisc
-  fi
+  # always make: incremental (a no-op when metisc is newer than its sources), and a metis-lang pulled some other
+  # way (not --pull here) gets its compiler too (2026-11-28: a stale metisc refused the composition's person: kinds)
+  echo "== metisc"; make -s -C "$M" metisc
   METISC=$M/metisc
 fi
 
