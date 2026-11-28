@@ -219,8 +219,14 @@ func (k *Core) settingsNow() {
 		f["min_stay"] = c.MinStay.String()
 		f["advantage"] = c.Advantage
 	}
+	if k.SetupView != nil {
+		f["setup"] = k.SetupView()
+	}
 	l.Log("settings", f)
 }
+
+// SetupChanged: her guided setup changed (a step, a check): her screens told.
+func (k *Core) SetupChanged() { k.settingsNow() }
 
 // loadSettings applies the last settings from the log (at the start).
 func (k *Core) loadSettings(ctx context.Context) {
