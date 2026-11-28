@@ -461,7 +461,7 @@ func (a *App) Start(ctx context.Context) error {
 			}()
 		}
 	}
-	go logDialogue(ctx, d, L, k.Floor)
+	go logDialogue(ctx, d, L, k.Floor, k.Woke)
 	if err := d.StartPlugins(ctx); err != nil {
 		return err
 	}
@@ -579,7 +579,11 @@ func voiceTools(k *core.Core, reads []tasks.Tool, cards string) dialogue.Tools {
 	}
 	var decls []*genai.FunctionDeclaration
 	funcs := map[string]dialogue.ToolFunc{}
-	for _, t := range append(k.HomeTools(), reads...) {
+	home := k.HomeTools()
+	if rt := k.ReportTool(); rt != nil { // the cognition's report verbs (the redesign's W4)
+		home = append(home, *rt)
+	}
+	for _, t := range append(home, reads...) {
 		t := t
 		decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.Parameters})
 		funcs[t.Name] = func(ctx context.Context, args map[string]any) map[string]any {
@@ -634,7 +638,7 @@ func voiceStrain(kind string, e map[string]any) {
 
 // logDialogue writes the dialogue's events to the log (stream dialog) and indexes what was
 // heard and said for recall.
-func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string)) {
+func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor func(string), woke func()) {
 	ch, cancel := d.Subscribe()
 	defer cancel()
 	for {
@@ -650,6 +654,9 @@ func logDialogue(ctx context.Context, d *dialogue.Dialogue, L *nlog.Log, floor f
 			if kind == "floor" && floor != nil {
 				to, _ := e["to"].(string)
 				floor(to)
+			}
+			if kind == "wake" && woke != nil { // a conversation opened: the cognition's floor
+				woke()
 			}
 			if kind == "interim" || kind == "said" || kind == "" {
 				continue

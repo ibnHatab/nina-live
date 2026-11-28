@@ -111,6 +111,8 @@ github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127223305-90759014e855 h1:c
 github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127223305-90759014e855/go.mod h1:y/duAVygzqdTyF5u/Ia5meCTSEvPcAENfzHh2uh0GeM=
 github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127223634-f93d83cd3496 h1:7u3DjxhQvm7txd4K3/zaQAU7ut9MmP4MkNODFxAYVVg=
 github.com/metis-lang-dev/metis-agent/go v0.0.0-20261127223634-f93d83cd3496/go.mod h1:y/duAVygzqdTyF5u/Ia5meCTSEvPcAENfzHh2uh0GeM=
+github.com/metis-lang-dev/metis-agent/go v0.0.0-20261128013012-bbe70bfab9e5 h1:hBEm6rrEl7tCilAnmGnT5v0AopejiWCtdTpOiTa/g1s=
+github.com/metis-lang-dev/metis-agent/go v0.0.0-20261128013012-bbe70bfab9e5/go.mod h1:y/duAVygzqdTyF5u/Ia5meCTSEvPcAENfzHh2uh0GeM=
 github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f h1:gMPbc7A8CY9B7AjnkomspHqcHgwJeb77IIvR5IB+MYo=
 github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261125151022-1489881ae95f/go.mod h1:CFKunGmiQQXrPqZeI/z7Fl+APW8fImg8ul/TU6al9+Q=
 github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go v0.0.0-20261127222734-e2dfb38f8cc8 h1:PFTCLaxtwIDPs0fCSU7vBsw+kq5vXkJhVq1XLjoABlE=

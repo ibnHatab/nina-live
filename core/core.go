@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ibnHatab/nina-live/agenda"
+	"github.com/ibnHatab/nina-live/cognition"
 	"github.com/ibnHatab/nina-live/escalate"
 	"github.com/ibnHatab/nina-live/explain"
 	"github.com/ibnHatab/nina-live/glow"
@@ -42,6 +43,7 @@ import (
 	"github.com/metis-lang-dev/metis-agent/go/pkg/metishome"
 	semhome "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/home"
 	sw "github.com/metis-lang-dev/metis-worlds/libs/semantic-world/go/semworld"
+	"gopkg.in/yaml.v3"
 )
 
 // Voice is where Nina speaks (the dialogue; a test's recorder).
@@ -97,7 +99,9 @@ type Core struct {
 	Music  *music.Host
 	Habits *habits.Host
 	Glow   *glow.Host
-	Taste  *taste.World // the semantic world's taste, as the hosts use it
+	// Cognition: the cognition members' world (the redesign's W4), when the composition has them
+	Cognition *cognition.World
+	Taste     *taste.World // the semantic world's taste, as the hosts use it
 	// Explain narrates the inference trace ("why did you do that?", a surprise); nil without tasks
 	Explain *explain.Explainer
 
@@ -291,6 +295,11 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		hosts["temperament"] = metishome.HostSpec{New: func() metishome.Host { return ph }, Outcomes: persona.Outcomes}
 		if c.Composed && !slices.Contains(c.Packages, "temperament") {
 			c.Packages = append(slices.Clone(c.Packages), "temperament")
+		}
+	}
+	if c.Composed {
+		if err := k.openCognition(ctx, &c, &hosts); err != nil {
+			return nil, err
 		}
 	}
 	if hosts != nil {
@@ -995,4 +1004,121 @@ func expandHome(p string) string {
 		return filepath.Join(h, p[2:])
 	}
 	return p
+}
+
+// openCognition: when the composition the catalog links to has the cognition's members (nina-narratives'
+// workspaces/live, the redesign's W4), their world host: the conversation's edges (the report verbs, the floor at
+// a conversation's start) to the members that take them, their say as her voice's note, the slots' words kept in
+// the log and restored from it.
+func (k *Core) openCognition(ctx context.Context, c *Config, hosts *map[string]metishome.HostSpec) error {
+	specs := compositionSpecialists(filepath.Join(c.Root, "domains", "composition.yaml"))
+	has := false
+	for _, m := range specs {
+		if slices.Contains(cognition.Members, m) {
+			has = true
+		}
+	}
+	if !has {
+		return nil
+	}
+	cw, err := cognition.Open(c.Root, specs)
+	if err != nil {
+		return fmt.Errorf("the cognition: %w", err)
+	}
+	c.Log.Read(ctx, 0, func(e nlog.Event) error {
+		var d struct{ Slot, Words string }
+		if json.Unmarshal(e.Data, &d) == nil && d.Slot != "" {
+			if e.Kind == "release" {
+				d.Words = ""
+			}
+			cw.Restore(d.Slot, d.Words)
+		}
+		return nil
+	}, "cognition")
+	cw.Save = func(kind, slot, words string) {
+		c.Log.Append(c.Now(), "cognition", kind, slot, "", map[string]any{"slot": slot, "words": words}, 1)
+	}
+	cw.Say = func(words string) {
+		c.Log.Append(c.Now(), "cognition", "say", "", "", map[string]any{"words": words}, 1)
+		if v := k.Voice(); v != nil {
+			v.Note("info", fmt.Sprintf("Something the person asked you to keep in mind is due to be brought up now: %q. "+
+				"Mention it in a few words at your next turn.", words))
+		}
+	}
+	if *hosts == nil {
+		*hosts = map[string]metishome.HostSpec{}
+	}
+	for _, m := range cw.Hosted() {
+		h := cw.Host(m)
+		(*hosts)[m] = metishome.HostSpec{New: func() metishome.Host { return h }}
+		if !slices.Contains(c.Packages, m) {
+			c.Packages = append(slices.Clone(c.Packages), m)
+		}
+	}
+	k.Cognition = cw
+	return nil
+}
+
+// compositionSpecialists: the specialists a composition.yaml names (nil without one).
+func compositionSpecialists(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var comp struct {
+		Specialists []string `yaml:"specialists"`
+	}
+	if yaml.Unmarshal(b, &comp) != nil {
+		return nil
+	}
+	return comp.Specialists
+}
+
+// Woke: a conversation opened (the voice's wake): the floor the cognition's attention may spend on what it keeps.
+func (k *Core) Woke() {
+	if k.Cognition != nil {
+		k.Cognition.Floor()
+	}
+}
+
+// ReportTool is the report verbs as the voice's tool (the redesign's W4, claudia's P7): what the person hands
+// Nina to keep in mind and bring up the next time they talk. Nil without the cognition.
+func (k *Core) ReportTool() *tasks.Tool {
+	if k.Cognition == nil {
+		return nil
+	}
+	return &tasks.Tool{Name: "keep_in_mind", Domain: "commitments",
+		Description: "Things the person hands Nina to keep in mind and bring up the next time they talk (not at a time: " +
+			"for a time, the timers). KEEP: keep these words; LATER: the person put it off, still to do; AGAIN: bring it " +
+			"up again; DONE: it is done, forget it. The words as the person said them (for LATER, AGAIN and DONE, enough " +
+			"of them to tell which).",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{
+			"verb":  map[string]any{"type": "string", "enum": []any{"KEEP", "LATER", "AGAIN", "DONE"}},
+			"words": map[string]any{"type": "string", "description": "what to keep in mind, in the person's words"}},
+			"required": []any{"verb", "words"}},
+		Call: func(_ context.Context, a map[string]any) (string, string) {
+			verb, _ := a["verb"].(string)
+			words, _ := a["words"].(string)
+			slot, kept, err := k.Cognition.Report(verb, words)
+			k.Log.Append(k.Cfg.Now(), "cognition", "report", slot, "", map[string]any{"verb": verb, "words": words, "slot": slot, "error": errText(err)}, 1)
+			if err != nil {
+				return "refused", err.Error()
+			}
+			switch strings.ToUpper(verb) {
+			case "KEEP":
+				return "done", fmt.Sprintf("Kept in mind: %q; I'll bring it up next time we talk.", kept)
+			case "DONE":
+				return "done", fmt.Sprintf("Done: %q, forgotten.", kept)
+			case "LATER":
+				return "done", fmt.Sprintf("Put off: %q, still kept.", kept)
+			}
+			return "done", fmt.Sprintf("I'll bring up %q again.", kept)
+		}}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

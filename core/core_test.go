@@ -79,6 +79,7 @@ var (
 	rigGlow  *glow.Host
 	rigMusic *music.Host
 	rigLog   string
+	rigRoot  string // a catalog other than ../catalog (the live workspace's: cognition_test.go)
 )
 
 type rig struct {
@@ -95,6 +96,9 @@ func newRig(t *testing.T, mech tasks.Mechanisms, extra ...tasks.Tool) *rig {
 		t.Skip("METISC: metis-lang's metisc (./build.sh test sets it)")
 	}
 	root, _ := filepath.Abs("../catalog")
+	if rigRoot != "" {
+		root = rigRoot
+	}
 	if _, err := os.Stat(filepath.Join(root, "domains", "build")); err != nil {
 		t.Skip("the composition's image is not built (./build.sh)")
 	}
