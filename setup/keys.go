@@ -28,11 +28,12 @@ type Paths struct {
 
 // Endpoints are the far ends the checks call (tests: an httptest server's).
 type Endpoints struct {
-	Gemini      string // https://generativelanguage.googleapis.com
-	YouTube     string // https://www.googleapis.com/youtube/v3
-	OpenRouter  string // https://openrouter.ai/api/v1
-	GoogleAuth  string // https://accounts.google.com/o/oauth2/v2/auth
-	GoogleToken string // https://oauth2.googleapis.com/token
+	Gemini       string // https://generativelanguage.googleapis.com
+	YouTube      string // https://www.googleapis.com/youtube/v3
+	OpenRouter   string // https://openrouter.ai/api/v1
+	GoogleAuth   string // https://accounts.google.com/o/oauth2/v2/auth
+	GoogleToken  string // https://oauth2.googleapis.com/token
+	GoogleRevoke string // https://oauth2.googleapis.com/revoke
 	// Google: one base for the Calendar, Tasks and Photos APIs ("": Google's own; the SITL's fake: its
 	// /calendar, /tasks, /photos)
 	Google string
@@ -42,7 +43,7 @@ type Endpoints struct {
 func Google() Endpoints {
 	return Endpoints{Gemini: "https://generativelanguage.googleapis.com", YouTube: "https://www.googleapis.com/youtube/v3",
 		OpenRouter: "https://openrouter.ai/api/v1", GoogleAuth: "https://accounts.google.com/o/oauth2/v2/auth",
-		GoogleToken: "https://oauth2.googleapis.com/token"}
+		GoogleToken: "https://oauth2.googleapis.com/token", GoogleRevoke: "https://oauth2.googleapis.com/revoke"}
 }
 
 func expand(p string) string {

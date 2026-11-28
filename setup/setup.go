@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ibnHatab/nina-live/creds"
 )
 
 // Result is what a check found.
@@ -95,6 +97,9 @@ type Setup struct {
 	Log func(kind string, data map[string]any)
 	// SignInPort: the loopback port of Google's redirect (http://localhost:PORT/, the OAuth client's)
 	SignInPort int
+	// Creds: her Google credential (creds.Store at P.Google), the one holder of the token: the setup's
+	// sign-in saves to it, its checks and sign-out go through it (the app gives the Store her backends use)
+	Creds *creds.Store
 
 	List []Integration
 
@@ -122,7 +127,29 @@ func New(p Paths) *Setup {
 	s := &Setup{P: p, E: Google(), HTTP: &http.Client{Timeout: 15 * time.Second}, SignInPort: 8765,
 		status: map[string]Result{}, narrate: true, said: map[string]bool{}, chosen: []string{"calendar", "tasks", "photos"}}
 	s.List = Integrations()
+	s.Creds = creds.Open(expand(p.Google))
+	s.Creds.Want = s.scopes
 	return s
+}
+
+// store is her credential with the setup's endpoints (the SITL's or a test's fake Google, set after New).
+func (s *Setup) store() *creds.Store {
+	if s.E.GoogleToken != "" {
+		s.Creds.TokenURL = s.E.GoogleToken
+	}
+	if s.E.GoogleRevoke != "" {
+		s.Creds.RevokeURL = s.E.GoogleRevoke
+	}
+	if s.HTTP != nil {
+		s.Creds.HTTP = s.HTTP
+	}
+	return s.Creds
+}
+
+// UseCreds: the credential store her Google backends use (the same Store, so a sign-in reaches them).
+func (s *Setup) UseCreds(c *creds.Store) {
+	c.Want = s.scopes
+	s.Creds = c
 }
 
 func (s *Setup) find(id string) (*Integration, bool) {
@@ -189,6 +216,8 @@ func (s *Setup) act(ctx context.Context, verb, arg string) error {
 			s.check(ctx, in, n, "")
 		}
 		return nil
+	case "signout": // Google's sign-in revoked, its file kept as .prev
+		return s.signOut(ctx)
 	case "restart":
 		s.mu.Lock()
 		need := s.restart
@@ -510,7 +539,7 @@ func (s *Setup) View() map[string]any {
 		}
 		list = append(list, e)
 	}
-	v := map[string]any{"integrations": list, "narrate": s.narrate, "restart": s.restart, "google_services": s.servicesView()}
+	v := map[string]any{"integrations": list, "narrate": s.narrate, "restart": s.restart, "google_services": s.servicesView(), "google": s.googleView()}
 	if st := s.at; st != nil {
 		in, _ := s.find(st.ID)
 		a := map[string]any{"integration": in.ID, "title": in.Title, "step": st.Step, "of": len(in.Steps), "done": st.Done}

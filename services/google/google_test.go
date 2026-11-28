@@ -115,18 +115,27 @@ func TestTheAgendaOnGoogle(t *testing.T) {
 	}
 }
 
-func TestATokenFileReadableByOthersIsRefused(t *testing.T) {
-	p := t.TempDir() + "/google-token.json"
-	b, _ := json.Marshal(Token{ClientID: "C", ClientSecret: "S", RefreshToken: "R"})
-	if err := writeFile(p, b, 0o644); err != nil {
+type source struct{ n int }
+
+func (s *source) AccessToken(context.Context) (string, error) { s.n++; return "from-source", nil }
+
+// TestTheTokenFromItsSource: a client from a source (creds.Store, the one holder of her credential) asks
+// it for each request's token and refreshes nothing itself (the file and its mode: creds' tests)
+func TestTheTokenFromItsSource(t *testing.T) {
+	var auth string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"items":[]}`))
+	}))
+	defer api.Close()
+	src := &source{}
+	c := FromSource(src)
+	c.TasksURL, c.TokenURL = api.URL, "http://127.0.0.1:1/never"
+	if _, err := c.TaskLists(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "chmod 600") {
-		t.Fatalf("loaded: %v", err)
-	}
-	writeFile(p, b, 0o600)
-	if _, err := Load(p); err != nil {
-		t.Fatal(err)
+	if auth != "Bearer from-source" || src.n != 1 {
+		t.Fatalf("auth %q, asked %d", auth, src.n)
 	}
 }
 

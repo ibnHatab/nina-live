@@ -66,9 +66,10 @@ func Integrations() []Integration {
 					Say:   "Choose which of your Google services I may use, then press Next. Gmail is not available yet: Google keeps sending mail for its partners.",
 					Check: checkServices},
 				{ID: "client", Title: "Google's personal setup", Input: "client", When: (*Setup).needsSignIn, Page: personalPage,
-					Text: "One Google page makes the project and my client: Nina, AI-powered agent ticked, Continue; copy the client ID and secret here.",
-					Say: "On Google's personal setup page, choose a project or create one named Nina, name the client Nina, keep Use this client for an AI-powered agent ticked, " +
-						"accept the policy and press Continue. Then copy the client ID and the client secret into my settings.",
+					Text: "Google's page makes a project (personal-mode-app) and a Desktop app client: name it Nina, keep AI-powered agent ticked, agree, Continue; copy its ID and secret here.",
+					Say: "Google's personal setup page makes a new project for me, named personal-mode-app, and a Desktop app client. Name the client Nina, " +
+						"keep Use this client for an AI-powered agent ticked, tick that you agree to the Google API Services User Data Policy, and press Continue. " +
+						"Then copy the client ID and the client secret into my settings.",
 					Check: checkClient, Save: saveClient},
 				{ID: "apis", Title: "Enable the rest", When: func(s *Setup) bool { return len(s.moreAPIs()) > 0 }, Page: apisPage,
 					Text: "For Photos, YouTube or Gemini: check the project is yours, Next, Enable; then Done.",

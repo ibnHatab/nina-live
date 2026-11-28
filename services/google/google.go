@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +38,10 @@ type Client struct {
 	Calendars map[string]string
 	Now       func() time.Time
 
+	// Src gives the access tokens (creds.Store: the one holder of her credential); nil: the client
+	// refreshes its own token (tests, and a Token given to New)
+	Src TokenSource
+
 	mu     sync.Mutex
 	access string
 	until  time.Time
@@ -49,27 +52,16 @@ type Client struct {
 // List is a task list.
 type List struct{ ID, Title string }
 
-// Load reads the credential file (it must not be readable by others).
-func Load(path string) (*Client, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if st.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("google: %s is readable by others (chmod 600)", path)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var t Token
-	if err := json.Unmarshal(b, &t); err != nil {
-		return nil, fmt.Errorf("google: %s: %w", path, err)
-	}
-	if t.RefreshToken == "" || t.ClientID == "" {
-		return nil, fmt.Errorf("google: %s has no client or refresh token", path)
-	}
-	return New(t), nil
+// TokenSource is where a client's access tokens come from (creds.Store).
+type TokenSource interface {
+	AccessToken(ctx context.Context) (string, error)
+}
+
+// FromSource is a client whose access tokens come from src (creds.Store).
+func FromSource(src TokenSource) *Client {
+	c := New(Token{})
+	c.Src = src
+	return c
 }
 
 // New is a client for a token.
@@ -80,6 +72,9 @@ func New(t Token) *Client {
 }
 
 func (c *Client) token(ctx context.Context) (string, error) {
+	if c.Src != nil {
+		return c.Src.AccessToken(ctx)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.access != "" && c.Now().Before(c.until) {

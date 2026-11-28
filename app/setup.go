@@ -33,24 +33,16 @@ func newSetup(c Config, voiceKey string, b Backends, d *dialogue.Dialogue, a *Ap
 		HassToken:  b.HassToken,
 		SearXNG:    c.Search.SearXNG,
 	})
-	// the Google services the person chose, as last kept in her log (stream setup, kind services)
-	var chosen []string
-	L.Read(context.Background(), 0, func(e nlog.Event) error {
-		var d struct {
-			Services []string `json:"services"`
-		}
-		if e.Kind == "services" && json.Unmarshal(e.Data, &d) == nil {
-			chosen = d.Services
-		}
-		return nil
-	}, "setup")
-	if chosen != nil {
+	if chosen := chosenServices(L); chosen != nil {
 		if err := s.Choose(chosen); err != nil {
 			stdlog.Printf("setup: the services kept: %v", err)
 		}
 	}
 	if e := strings.TrimRight(c.Services.Google.Endpoint, "/"); e != "" { // the SITL's fake Google
-		s.E.GoogleToken, s.E.Google = e+"/token", e
+		s.E.GoogleToken, s.E.GoogleRevoke, s.E.Google = e+"/token", e+"/revoke", e
+	}
+	if a.creds != nil {
+		s.UseCreds(a.creds) // the same Store as her Google backends: a sign-in reaches them
 	}
 	s.Say = func(text string) { go d.Do("say", text) }
 	s.WhatsApp = func() setup.WhatsApp {
@@ -80,3 +72,19 @@ func (w waLink) Linked() bool {
 }
 
 func (w waLink) StartLink(ctx context.Context) error { return w.a.wa.StartLink(ctx) }
+
+// chosenServices: the Google services the person chose, as last kept in her log (stream setup, kind
+// services); nil: never chosen
+func chosenServices(L *nlog.Log) []string {
+	var chosen []string
+	L.Read(context.Background(), 0, func(e nlog.Event) error {
+		var d struct {
+			Services []string `json:"services"`
+		}
+		if e.Kind == "services" && json.Unmarshal(e.Data, &d) == nil {
+			chosen = d.Services
+		}
+		return nil
+	}, "setup")
+	return chosen
+}

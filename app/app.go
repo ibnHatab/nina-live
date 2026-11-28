@@ -25,6 +25,7 @@ import (
 	"github.com/ibnHatab/fsttm-live/pkg/dialogue"
 	"github.com/ibnHatab/nina-live/agenda"
 	"github.com/ibnHatab/nina-live/core"
+	"github.com/ibnHatab/nina-live/creds"
 	"github.com/ibnHatab/nina-live/glow"
 	"github.com/ibnHatab/nina-live/hatools"
 	nlog "github.com/ibnHatab/nina-live/log"
@@ -199,6 +200,7 @@ type Reader interface {
 
 // App is Nina assembled: New opens her, Start sets her running, Dialogue is her voice.
 type App struct {
+	creds *creds.Store // her Google credential (the setup's sign-in, her Google backends)
 	c     Config
 	b     Backends
 	L     *nlog.Log
@@ -242,10 +244,16 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		return nil, err
 	}
 	fail := func(err error) (*App, error) { L.Close(); return nil, err }
-	if b, err = Direct(c, b); err != nil { // the config's direct services over the deployment's backends
+	// her Google credential: the one holder of the token (creds), shared by her backends and her setup's sign-in
+	gst := creds.Open(expand(firstOf(c.Services.Google.Token, "~/.config/nina/google-token.json")))
+	if e := strings.TrimRight(c.Services.Google.Endpoint, "/"); e != "" { // the SITL's fake Google
+		gst.TokenURL, gst.RevokeURL = e+"/token", e+"/revoke"
+	}
+	c = withChoice(c, chosenServices(L), gst)       // the services chosen in her setup turn her Google backends on
+	if b, err = DirectWith(c, b, gst); err != nil { // the config's direct services over the deployment's backends
 		return fail(err)
 	}
-	a := &App{c: c, b: b, L: L}
+	a := &App{c: c, b: b, L: L, creds: gst}
 
 	ents := agenda.Default
 	if len(c.Agenda) > 0 {

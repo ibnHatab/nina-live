@@ -61,6 +61,13 @@ var Default = map[string]string{
 	"my_tasks": "todo.my_tasks", "nina_todo": "todo.nina_local", "shopping": "todo.shopping_list",
 }
 
+// GoogleDefault are the handles on Google's own services (the agenda on Google by the person's choice, no
+// agenda: map in her config): her calendar and the person's are the account's primary calendar, the tasks
+// Google Tasks' default list, the shopping list a list titled so (made by the person; none: refused).
+var GoogleDefault = map[string]string{
+	"nina_cal": "primary", "person_cal": "primary", "my_tasks": "@default", "shopping": "Shopping list",
+}
+
 var names = map[string]string{"nina_cal": "my calendar", "nina_local": "the local test calendar",
 	"person_cal": "your calendar", "my_tasks": "your tasks", "nina_todo": "my local list", "shopping": "the shopping list"}
 

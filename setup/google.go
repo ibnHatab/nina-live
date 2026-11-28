@@ -3,6 +3,8 @@ package setup
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibnHatab/nina-live/creds"
 	"github.com/ibnHatab/nina-live/services/google"
 )
 
@@ -225,6 +228,14 @@ func checkClient(_ context.Context, s *Setup, value string) Result {
 		}
 		return Result{Detail: err.Error(), Hint: "That is not the client's file. On the client's page, press Download JSON, open the file, and paste all of it."}
 	}
+	if c.kind != "desktop" { // Google's personal setup makes a Desktop app client; a Web client (an older setup's) is not this step's
+		if value == "" {
+			return Result{Detail: "the client kept is a " + c.kind + " client, not the Desktop app client Google's personal setup makes",
+				Hint: "On Google's personal setup page press Continue, then copy that client's ID and secret here."}
+		}
+		return Result{Detail: "that is a " + c.kind + " client; this step needs the Desktop app client Google's personal setup makes",
+			Hint: "Copy the client ID and secret from Google's personal setup page (Desktop app), not from another client."}
+	}
 	r := Result{OK: true, Detail: "an OAuth client (" + c.kind + " app)", Say: "I found your OAuth client."}
 	if c.kind == "web" {
 		ok := false
@@ -250,8 +261,25 @@ func saveClient(s *Setup, value string) error {
 }
 
 type signin struct {
-	url, redirect, state string
-	srv                  *http.Server
+	url, redirect, state, verifier string
+	asked                          []string // the scopes this sign-in asked for
+	srv                            *http.Server
+}
+
+// identity: the account's address in the sign-in's id_token (asked with openid email)
+var identity = []string{"openid", "email"}
+
+// askScopes: what a sign-in asks for. Signed in already with this client: only the chosen scopes not yet
+// granted (Google adds them to the grant: include_granted_scopes), else all the chosen ones; the account's
+// address each time.
+func (s *Setup) askScopes(c client) []string {
+	want := s.scopes()
+	if t := s.store().Token(); t != nil && t.ClientID == c.ClientID && len(t.Scopes) > 0 {
+		if m := creds.Missing(t.Scopes, want); len(m) > 0 {
+			want = m
+		}
+	}
+	return append(append([]string(nil), want...), identity...)
 }
 
 // startSignIn listens on the loopback port for Google's redirect and puts the sign-in's page on her
@@ -266,15 +294,18 @@ func (s *Setup) startSignIn(in *Integration, n int) error {
 	if err != nil {
 		return fmt.Errorf("sign-in: port %d is busy (nina-google-auth running?): %w", s.SignInPort, err)
 	}
-	sb := make([]byte, 16)
+	sb, vb := make([]byte, 16), make([]byte, 32)
 	rand.Read(sb)
-	si := &signin{redirect: s.redirect(), state: hex.EncodeToString(sb)}
+	rand.Read(vb)
+	si := &signin{redirect: s.redirect(), state: hex.EncodeToString(sb), verifier: base64.RawURLEncoding.EncodeToString(vb), asked: s.askScopes(c)}
+	sum := sha256.Sum256([]byte(si.verifier))
 	auth := s.E.GoogleAuth
 	if c.AuthURI != "" && s.E.GoogleAuth == Google().GoogleAuth {
 		auth = c.AuthURI
 	}
 	si.url = auth + "?" + query("client_id", c.ClientID, "redirect_uri", si.redirect, "response_type", "code",
-		"scope", strings.Join(s.scopes(), " "), "access_type", "offline", "prompt", "consent", "state", si.state)
+		"scope", strings.Join(si.asked, " "), "access_type", "offline", "prompt", "consent", "include_granted_scopes", "true",
+		"state", si.state, "code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]), "code_challenge_method", "S256")
 	si.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" || r.URL.Query().Get("state") != si.state {
 			http.Error(w, "not this sign-in", 400)
@@ -355,7 +386,7 @@ func (s *Setup) exchange(c client, si *signin, q url.Values) Result {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	form := url.Values{"code": {q.Get("code")}, "client_id": {c.ClientID}, "client_secret": {c.ClientSecret},
-		"redirect_uri": {si.redirect}, "grant_type": {"authorization_code"}}
+		"redirect_uri": {si.redirect}, "grant_type": {"authorization_code"}, "code_verifier": {si.verifier}}
 	req, _ := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := s.HTTP.Do(req)
@@ -366,6 +397,7 @@ func (s *Setup) exchange(c client, si *signin, q url.Values) Result {
 	var t struct {
 		Refresh string `json:"refresh_token"`
 		Scope   string `json:"scope"`
+		IDToken string `json:"id_token"`
 		Error   string `json:"error"`
 		Desc    string `json:"error_description"`
 	}
@@ -373,9 +405,14 @@ func (s *Setup) exchange(c client, si *signin, q url.Values) Result {
 	if t.Refresh == "" {
 		return Result{Detail: fmt.Sprintf("no refresh token (%s %s)", t.Error, t.Desc), Hint: "Google gave no lasting sign-in. Start the sign-in again."}
 	}
+	granted := strings.Fields(t.Scope)
+	old := s.store().Token()
+	if old != nil && old.ClientID == c.ClientID { // include_granted_scopes: Google's answer has the earlier grant too; kept either way
+		granted = creds.Union(granted, old.Scopes)
+	}
 	var lacking []string
 	for _, sc := range s.scopes() {
-		if !strings.Contains(" "+t.Scope+" ", " "+sc+" ") {
+		if !contains(granted, sc) {
 			lacking = append(lacking, strings.TrimPrefix(sc, "https://www.googleapis.com/auth/"))
 		}
 	}
@@ -383,36 +420,38 @@ func (s *Setup) exchange(c client, si *signin, q url.Values) Result {
 		return Result{Detail: "not allowed: " + strings.Join(lacking, ", "),
 			Hint: "Some boxes on Google's consent page were not ticked. Sign in again and tick all of them."}
 	}
-	tok, _ := json.Marshal(google.Token{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RefreshToken: t.Refresh})
-	if err := writeFile(s.P.Google, tok); err != nil {
+	nt := creds.Token{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RefreshToken: t.Refresh, Scopes: granted,
+		Account: emailOf(t.IDToken), Granted: time.Now().UTC()}
+	if nt.Account == "" && old != nil {
+		nt.Account = old.Account
+	}
+	if err := s.store().Save(nt); err != nil {
 		return Result{Detail: "signed in, but the token could not be kept: " + err.Error()}
 	}
-	return s.googleAPIs(ctx, google.Token{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RefreshToken: t.Refresh})
+	return s.googleAPIs(ctx)
 }
 
-// checkGoogle: her token kept, and each of Google's APIs she uses answers with it.
+// checkGoogle: her sign-in (the credential's health: none, invalid_grant, a chosen service's scope missing),
+// then each of Google's APIs she uses called with it.
 func checkGoogle(ctx context.Context, s *Setup, _ string) Result {
-	b, err := os.ReadFile(expand(s.P.Google))
-	if err != nil {
-		if s.P.Google == "" {
-			return missing("the Google token", "")
-		}
+	h := s.store().Health(ctx)
+	switch h.State {
+	case "none":
 		return Result{Detail: "not signed in yet"}
+	case "invalid_grant":
+		return Result{Detail: h.Detail, Hint: "Google has ended that sign-in. Sign in again."}
+	case "scope_missing":
+		return Result{Detail: h.Detail, Hint: "You chose a service the sign-in does not cover yet. Sign in again: I ask only for what is missing."}
+	case "error":
+		return Result{Detail: h.Detail}
 	}
-	var t google.Token
-	if json.Unmarshal(b, &t) != nil || t.RefreshToken == "" {
-		return Result{Detail: "the token file has no sign-in in it", Hint: "Sign in again."}
-	}
-	return s.googleAPIs(ctx, t)
+	return s.googleAPIs(ctx)
 }
 
-// googleAPIs: Calendar, Tasks and Photos called with the token (what each said).
-func (s *Setup) googleAPIs(ctx context.Context, t google.Token) Result {
-	g := google.New(t)
+// googleAPIs: Calendar, Tasks and Photos called with her credential (what each said).
+func (s *Setup) googleAPIs(ctx context.Context) Result {
+	g := google.FromSource(s.store())
 	g.HTTP = s.HTTP
-	if s.E.GoogleToken != Google().GoogleToken {
-		g.TokenURL = s.E.GoogleToken
-	}
 	if e := strings.TrimRight(s.E.Google, "/"); e != "" {
 		g.CalendarURL, g.TasksURL, g.PhotosURL, g.PickerURL = e+"/calendar", e+"/tasks", e+"/photos", e+"/picker"
 	}
@@ -428,9 +467,11 @@ func (s *Setup) googleAPIs(ctx context.Context, t google.Token) Result {
 			ok = append(ok, name)
 		}
 	}
-	if _, err := g.TaskLists(ctx); err != nil && strings.Contains(err.Error(), "invalid_grant") { // the token's refresh: any call tells
-		return Result{Detail: "Google no longer accepts the sign-in (invalid_grant)",
-			Hint: "Google has ended that sign-in: in Testing it lasts seven days. Publish the app on the Audience page, then sign in again."}
+	if _, err := s.store().AccessToken(ctx); err != nil { // the token's refresh tells first
+		if errors.Is(err, creds.ErrInvalidGrant) {
+			return Result{Detail: err.Error(), Hint: "Google has ended that sign-in. Sign in again."}
+		}
+		return Result{Detail: err.Error()}
 	}
 	if s.chose("calendar") {
 		try("calendar", func() error { _, err := g.Events(ctx, "primary", 24*time.Hour, 1); return err })
@@ -449,7 +490,75 @@ func (s *Setup) googleAPIs(ctx context.Context, t google.Token) Result {
 		}
 		return r
 	}
-	return Result{OK: true, Detail: "my Google account works: " + strings.Join(ok, ", ")}
+	r := Result{OK: true, Detail: "my Google account works: " + strings.Join(ok, ", ")}
+	if t := s.store().Token(); t != nil && t.Account != "" {
+		r.Detail = "my Google account (" + t.Account + ") works: " + strings.Join(ok, ", ")
+	}
+	return r
+}
+
+// signOut: the sign-in revoked at Google, its file kept as .prev.
+func (s *Setup) signOut(ctx context.Context) error {
+	err := s.store().SignOut(ctx)
+	s.log("setup", map[string]any{"verb": "signout", "integration": "google", "ok": err == nil})
+	if err != nil && !errors.Is(err, creds.ErrNone) && !strings.HasPrefix(err.Error(), "Google's revocation") {
+		return err
+	}
+	s.mu.Lock()
+	s.status["google"] = Result{Detail: "signed out (the old sign-in kept as google-token.json.prev)"}
+	s.restart = true // her agenda and albums stop using it at her next start
+	s.mu.Unlock()
+	s.say("I have signed out of your Google account. Your calendar, tasks and photos are no longer mine until you sign in again.")
+	return err
+}
+
+// googleView: the sign-in as her screens show it (nothing secret)
+func (s *Setup) googleView() map[string]any {
+	t := s.store().Token()
+	v := map[string]any{"signed_in": t != nil}
+	if t != nil {
+		v["account"] = t.Account
+		if !t.Granted.IsZero() {
+			v["granted"] = t.Granted.Format(time.RFC3339)
+		}
+		var sc []string
+		for _, x := range t.Scopes {
+			if strings.HasPrefix(x, auth) {
+				sc = append(sc, strings.TrimPrefix(x, auth))
+			}
+		}
+		v["scopes"] = sc
+	}
+	if _, err := os.Stat(expand(s.P.Google) + ".prev"); err == nil {
+		v["prev"] = true
+	}
+	return v
+}
+
+// emailOf: the email claim of an id_token (from Google's token endpoint, over TLS: read, not verified)
+func emailOf(idToken string) string {
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		Email string `json:"email"`
+	}
+	json.Unmarshal(b, &c)
+	return c.Email
+}
+
+func contains(l []string, x string) bool {
+	for _, y := range l {
+		if y == x {
+			return true
+		}
+	}
+	return false
 }
 
 func htmlEscape(s string) string {

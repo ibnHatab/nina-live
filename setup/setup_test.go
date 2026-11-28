@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ibnHatab/nina-live/creds"
 )
 
 const (
@@ -52,7 +55,16 @@ func far(t *testing.T, scope string) *httptest.Server {
 		case p == "/token":
 			r.ParseForm()
 			if r.Form.Get("grant_type") == "authorization_code" {
-				if r.Form.Get("code") != "the-code" {
+				if r.Form.Get("code") != "the-code" || r.Form.Get("code_verifier") == "" { // PKCE: the verifier with the code
+					w.WriteHeader(400)
+					fmt.Fprint(w, `{"error":"invalid_grant"}`)
+					return
+				}
+				if granted := r.Form.Get("client_id"); granted == "id-incremental" { // an incremental sign-in: Google's answer for the added scopes
+					fmt.Fprintf(w, `{"refresh_token":"the-refresh-2","scope":%q,"id_token":%q}`, scope, idToken("person@example.com"))
+					return
+				}
+				if false {
 					w.WriteHeader(400)
 					fmt.Fprint(w, `{"error":"invalid_grant"}`)
 					return
@@ -61,6 +73,11 @@ func far(t *testing.T, scope string) *httptest.Server {
 				return
 			}
 			fmt.Fprint(w, `{"access_token":"the-access","expires_in":3600}`)
+		case p == "/revoke":
+			r.ParseForm()
+			if r.Form.Get("token") == "" {
+				w.WriteHeader(400)
+			}
 		case strings.HasPrefix(p, "/google/"):
 			if bearer != "the-access" {
 				w.WriteHeader(401)
@@ -97,7 +114,7 @@ func machine(t *testing.T, scope string) (*Setup, string, *[]string) {
 		HassURL: srv.URL + "/hass", HassToken: put("hass.token", haTok), SearXNG: srv.URL + "/searxng"}
 	s := New(p)
 	s.E = Endpoints{Gemini: srv.URL + "/gemini", YouTube: srv.URL + "/youtube", OpenRouter: srv.URL + "/openrouter",
-		GoogleAuth: srv.URL + "/auth", GoogleToken: srv.URL + "/token", Google: srv.URL + "/google"}
+		GoogleAuth: srv.URL + "/auth", GoogleToken: srv.URL + "/token", GoogleRevoke: srv.URL + "/revoke", Google: srv.URL + "/google"}
 	said := &[]string{}
 	s.Say = func(t string) { *said = append(*said, t) }
 	w := &wa{}
@@ -285,7 +302,8 @@ func TestTheGoogleSignIn(t *testing.T) {
 	si := active(s)["signin"].(map[string]any)
 	u, _ := url.Parse(si["url"].(string))
 	if u.Query().Get("redirect_uri") != fmt.Sprintf("http://localhost:%d/", s.SignInPort) || u.Query().Get("access_type") != "offline" ||
-		u.Query().Get("scope") != strings.Join(Scopes[:5], " ") {
+		u.Query().Get("scope") != strings.Join(Scopes[:5], " ")+" openid email" || u.Query().Get("include_granted_scopes") != "true" ||
+		u.Query().Get("code_challenge_method") != "S256" || u.Query().Get("code_challenge") == "" {
 		t.Fatalf("the sign-in's page: %s", u)
 	}
 	if b, _ := json.Marshal(s.View()); strings.Contains(string(b), "sec-1") {
@@ -299,7 +317,7 @@ func TestTheGoogleSignIn(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("the redirect: %v %v", resp, err)
 	}
-	var tok map[string]string
+	var tok map[string]any
 	b, _ := os.ReadFile(filepath.Join(dir, "google-token.json"))
 	if json.Unmarshal(b, &tok); tok["refresh_token"] != "the-refresh" || tok["client_id"] != "id-1.apps" {
 		t.Errorf("the token: %v", tok)
@@ -432,5 +450,116 @@ func TestSkipping(t *testing.T) {
 	}
 	if ok, _ := s.Action("name", "x"); ok {
 		t.Error("not the setup's action taken")
+	}
+}
+
+// idToken: an id_token with an email claim (unsigned: the setup reads, it does not verify, what Google's
+// token endpoint gave over TLS)
+func idToken(email string) string {
+	b, _ := json.Marshal(map[string]string{"email": email})
+	return "e30." + base64.RawURLEncoding.EncodeToString(b) + ".sig"
+}
+
+// signIn runs the sign-in's redirect against the fake (the person allowed it in Google's page)
+func signIn(t *testing.T, s *Setup) *url.URL {
+	t.Helper()
+	for i := 0; i < 6 && active(s)["current"].(map[string]any)["id"] != "signin"; i++ { // the steps before it: each passed, or done by word
+		if s.Action("setup_next", ""); active(s)["current"].(map[string]any)["id"] == "apis" {
+			do(t, s, "setup_done", "")
+		}
+	}
+	do(t, s, "setup_signin", "")
+	u, _ := url.Parse(active(s)["signin"].(map[string]any)["url"].(string))
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?state=%s&code=the-code", s.SignInPort, u.Query().Get("state")))
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("the redirect: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	return u
+}
+
+// TestIncrementalConsent: signed in for Calendar and Tasks; Photos ticked afterwards: the sign-in asks only
+// for Photos' scopes (and the account), with include_granted_scopes, and the grant kept is both; the account's
+// address is read from the id_token; the old token file stays as .prev.
+func TestIncrementalConsent(t *testing.T) {
+	photos := strings.Join(Scopes[2:5], " ")
+	s, dir, _ := machine(t, photos)
+	cl := `{"installed":{"client_id":"id-incremental","client_secret":"sec-2"}}`
+	os.WriteFile(filepath.Join(dir, "google-oauth-client.json"), []byte(cl), 0o600)
+	old, _ := json.Marshal(creds.Token{ClientID: "id-incremental", ClientSecret: "sec-2", RefreshToken: "the-refresh", Scopes: Scopes[:2]})
+	os.WriteFile(filepath.Join(dir, "google-token.json"), old, 0o600)
+	do(t, s, "setup_add", "google")
+	do(t, s, "setup_services", "calendar,tasks,photos")
+	u := signIn(t, s)
+	if got := u.Query().Get("scope"); got != photos+" openid email" {
+		t.Fatalf("asked for %q, want only Photos' and the account", got)
+	}
+	if u.Query().Get("include_granted_scopes") != "true" {
+		t.Fatal("not incremental")
+	}
+	tk := s.Creds.Token()
+	if tk == nil || tk.RefreshToken != "the-refresh-2" || len(tk.Scopes) != 5 || tk.Account != "person@example.com" || tk.Granted.IsZero() {
+		t.Fatalf("kept: %+v", tk)
+	}
+	if prev, _ := os.ReadFile(filepath.Join(dir, "google-token.json.prev")); !strings.Contains(string(prev), `"the-refresh"`) {
+		t.Fatalf(".prev: %s", prev)
+	}
+	if r := active(s)["result"].(map[string]any); r["ok"] != true || !strings.Contains(r["detail"].(string), "person@example.com") {
+		t.Errorf("signed in: %v", r)
+	}
+	if g := view(s)["google"].(map[string]any); g["signed_in"] != true || g["account"] != "person@example.com" || len(g["scopes"].([]any)) != 5 || g["prev"] != true {
+		t.Errorf("her screens' google: %v", g)
+	}
+	if b, _ := json.Marshal(s.View()); strings.Contains(string(b), "the-refresh") || strings.Contains(string(b), "sec-2") {
+		t.Error("a secret on her screens")
+	}
+}
+
+// TestSignOut: revoked at Google, the file kept as .prev, her screens told; Google's check then says not
+// signed in, and her next start drops the backends (restart offered).
+func TestSignOut(t *testing.T) {
+	s, dir, said := machine(t, strings.Join(Scopes[:5], " "))
+	tok, _ := json.Marshal(creds.Token{ClientID: "id-1.apps", ClientSecret: "sec-1", RefreshToken: "the-refresh", Account: "person@example.com"})
+	os.WriteFile(filepath.Join(dir, "google-token.json"), tok, 0o600)
+	do(t, s, "setup_signout", "")
+	if _, err := os.Stat(filepath.Join(dir, "google-token.json")); !os.IsNotExist(err) {
+		t.Fatal("the token file is still there")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "google-token.json.prev")); !strings.Contains(string(b), "the-refresh") {
+		t.Fatalf(".prev: %s", b)
+	}
+	v := view(s)
+	if g := v["google"].(map[string]any); g["signed_in"] != false || g["prev"] != true {
+		t.Errorf("google after sign-out: %v", g)
+	}
+	if v["restart"] != true {
+		t.Error("no restart offered: her backends would keep the old sign-in")
+	}
+	if !strings.Contains(strings.Join(*said, " "), "signed out") {
+		t.Errorf("said: %q", *said)
+	}
+	if r := checkGoogle(context.Background(), s, ""); r.OK || r.Detail != "not signed in yet" {
+		t.Errorf("check after sign-out: %+v", r)
+	}
+}
+
+// TestDesktopClientOnly: Google's personal setup makes a Desktop app client: a Web client pasted is refused,
+// and a Web client kept from an older setup shows as not this step's (not as a ✓).
+func TestDesktopClientOnly(t *testing.T) {
+	s, dir, _ := machine(t, "")
+	web := `{"web":{"client_id":"w.apps","client_secret":"ws","redirect_uris":["https://my.home-assistant.io/redirect/oauth"]}}`
+	os.WriteFile(filepath.Join(dir, "google-oauth-client.json"), []byte(web), 0o600)
+	do(t, s, "setup_add", "google")
+	do(t, s, "setup_next", "")
+	if r := active(s)["result"].(map[string]any); r["ok"] != false || !strings.Contains(r["detail"].(string), "not the Desktop app client") {
+		t.Errorf("a kept web client on entering: %v", r)
+	}
+	do(t, s, "setup_value", web)
+	if r := active(s)["result"].(map[string]any); r["ok"] != false || !strings.Contains(r["detail"].(string), "Desktop app client") {
+		t.Errorf("a web client pasted: %v", r)
+	}
+	do(t, s, "setup_value", `{"installed":{"client_id":"d.apps","client_secret":"ds"}}`)
+	if r := active(s)["result"].(map[string]any); r["ok"] != true {
+		t.Errorf("a desktop client: %v", r)
 	}
 }
