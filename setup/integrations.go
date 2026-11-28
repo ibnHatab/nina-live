@@ -15,7 +15,7 @@ func Integrations() []Integration {
 			Steps: []Step{{
 				ID: "key", Title: "A Gemini API key", Input: "secret", URL: "https://aistudio.google.com/apikey",
 				Text: "In AI Studio: Create API key, copy it, paste it here.",
-				Say: "I have opened Google AI Studio in a new tab. Sign in with your Google account, press Create API key, " +
+				Say: "Open Google AI Studio's page. Sign in with your Google account, press Create API key, " +
 					"choose your Nina project if you made one, or let it make one, then copy the key and paste it into my settings.",
 				Check: checkGemini, Save: saveKey(func(p Paths) string { return p.Gemini }, ""),
 			}}},
@@ -40,7 +40,7 @@ func Integrations() []Integration {
 						"press I have one already. If not, press Next and I will walk you through it: it takes about five minutes."},
 				{ID: "create", Title: "Make the project", URL: "https://console.cloud.google.com/projectcreate",
 					Text: "Name it Nina, Create, and make sure it is the project selected at the top.",
-					Say: "In the new tab, sign in to Google Cloud with your account. If it asks, accept its terms of service. " +
+					Say: "On Google Cloud's page, sign in with your account. If it asks, accept its terms of service. " +
 						"Name the project Nina and press Create. When it is made, check that Nina is the project selected at the top of the page, then come back and press Done."},
 				{ID: "apis", Title: "Enable her APIs", URL: enableAPIs,
 					Text: "Calendar, Tasks, Photos Library, Photos Picker, YouTube Data: Next, then Enable.",
@@ -60,13 +60,13 @@ func Integrations() []Integration {
 			Steps: []Step{
 				{ID: "client", Title: "Her OAuth client", Input: "client", URL: "https://console.cloud.google.com/auth/clients/create",
 					Text: "Web application, name Nina, redirect http://localhost:8765/, Create, Download JSON, paste it here (or pick one found).",
-					Say: "Now the key to your account: an OAuth client. In the new tab choose Web application and name it Nina. Under Authorized redirect URIs press Add URI " +
+					Say: "Now the key to your account: an OAuth client. On its page choose Web application and name it Nina. Under Authorized redirect URIs press Add URI " +
 						"and type http colon slash slash localhost colon eight seven six five slash. Press Create, then Download JSON. Open that file and paste all of it into my settings. " +
 						"If you made one before, you can pick it from the list instead.",
 					Check: checkClient, Save: saveClient},
 				{ID: "signin", Title: "Sign in with Google", Input: "signin",
 					Text: "Sign in: allow every box. If it says the app is not verified: Advanced, Go to Nina.",
-					Say: "Press Sign in. Google's page opens in a new tab: choose your account and allow every box. Google may say the app is not verified, because it is your own: " +
+					Say: "Press Sign in with Google. On Google's page choose your account and allow every box. Google may say the app is not verified, because it is your own: " +
 						"press Advanced, then Go to Nina. When it says you are signed in, come back here.",
 					Check: checkGoogle},
 			}},

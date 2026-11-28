@@ -417,7 +417,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		stdlog.Printf("music: one knob with her voice (top %.0f dBFS, %.0f dB under her while anyone talks)", c.Music.Top, c.Music.Under)
 	}
 	a.Setup = newSetup(c, dcfg.Key, b, d, a, L)
-	k.SetupView = a.Setup.View
+	k.SetupView, a.Setup.Changed = a.Setup.View, k.SetupChanged // each step and check: her screens told
 	d.OnAction = func(action, arg string) (bool, error) { // her settings from her screens: name, persona, temperament
 		if ok, err := a.Setup.Action(action, arg); ok { // her guided setup's (setup_…)
 			return true, err

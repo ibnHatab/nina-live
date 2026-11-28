@@ -166,6 +166,12 @@ func (s *Setup) act(ctx context.Context, verb, arg string) error {
 		}
 		s.mu.Unlock()
 		return nil
+	case "close": // the guide closed, done or not (what was done is kept)
+		s.mu.Lock()
+		s.at = nil
+		s.mu.Unlock()
+		s.stopSignIn()
+		return nil
 	case "restart":
 		s.mu.Lock()
 		need := s.restart
@@ -225,11 +231,6 @@ func (s *Setup) act(ctx context.Context, verb, arg string) error {
 		st.Result = nil
 		s.mu.Unlock()
 		s.enter(ctx)
-	case "close": // the guide closed (what was done is kept)
-		s.mu.Lock()
-		s.at = nil
-		s.mu.Unlock()
-		s.stopSignIn()
 	case "signin": // Google's sign-in started: its page for the person's browser
 		return s.startSignIn(in, n)
 	case "link": // her WhatsApp device: the QR on her screens
@@ -266,10 +267,27 @@ func (s *Setup) enter(ctx context.Context) {
 		return
 	}
 	step := in.Steps[n]
-	s.say(step.Say)
 	if step.Check != nil && step.Input != "signin" {
-		s.check(ctx, in, n, "")
+		// what is there checked first: when it works, that is what she says (the sunny day), not how to make it
+		if r := s.check(ctx, in, n, ""); r.OK {
+			next := "Press Next to keep it."
+			if step.Input == "secret" || step.Input == "client" {
+				next = "Press Next to keep it, or paste a new one to replace it."
+			}
+			s.say(sentence(r.Detail) + " " + next)
+			return
+		}
 	}
+	s.say(step.Say)
+}
+
+// sentence: a check's detail said as a sentence
+func sentence(d string) string {
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return ""
+	}
+	return strings.ToUpper(d[:1]) + d[1:] + "."
 }
 
 func (s *Setup) check(ctx context.Context, in *Integration, n int, value string) Result {

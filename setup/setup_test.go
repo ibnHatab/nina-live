@@ -152,12 +152,31 @@ func TestTheSunnyDay(t *testing.T) {
 	if r := a["result"].(map[string]any); r["ok"] != true || !strings.Contains(r["detail"].(string), "she has works") {
 		t.Errorf("the key she has, checked on entering: %v", a["result"])
 	}
-	if len(*said) != 1 || !strings.Contains((*said)[0], "AI Studio") {
+	// the key she has works: that is what she says, not how to make one (claudia's test, 2026-11-28)
+	if len(*said) != 1 || (*said)[0] != "The Gemini key she has works. Press Next to keep it, or paste a new one to replace it." {
 		t.Errorf("narrated: %q", *said)
 	}
 	do(t, s, "setup_next", "")
 	if a := active(s); a["done"] != true || view(s)["restart"] != false {
 		t.Errorf("done, nothing to restart for: %v", view(s))
+	}
+}
+
+// TestEveryActionTellsHerScreens: each action, its result on her screens (the settings event).
+func TestEveryActionTellsHerScreens(t *testing.T) {
+	s, _, said := machine(t, "")
+	n := 0
+	s.Changed = func() { n++ }
+	for _, a := range [][2]string{{"setup_status", ""}, {"setup_add", "youtube"}, {"setup_say", ""}, {"setup_skip", ""}, {"setup_close", ""}} {
+		before := n
+		do(t, s, a[0], a[1])
+		if n != before+1 {
+			t.Errorf("%s: her screens not told", a[0])
+		}
+	}
+	// a key not set yet: how to make it is what she says
+	if len(*said) < 1 || !strings.Contains((*said)[0], "Create credentials") {
+		t.Errorf("narrated: %q", *said)
 	}
 }
 
