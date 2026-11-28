@@ -162,6 +162,16 @@ func Open(ctx context.Context, c Config) (*Core, error) {
 		k.Timers = timers.New(c.Now, func(e timers.Event) {
 			c.Log.Append(c.Now(), "timers", e.Kind, "", "", e, 1)
 			go k.timersContext() // the host's lock is held here
+			if said := e.Said(); said != "" {
+				// a ring is said whether she is talking or asleep (urgent: the next free floor, never
+				// over the person); the rules' own line stays the context's (2026-11-28: as an info
+				// note, a ring was filtered while she was awake and never said)
+				go func() {
+					if v := k.Voice(); v != nil {
+						v.Note("urgent", said)
+					}
+				}()
+			}
 		}, past)
 		hosts = map[string]metishome.HostSpec{"timers": {New: func() metishome.Host { return k.Timers }, Outcomes: timers.Outcomes}}
 		if !slices.Contains(c.Packages, "timers") {

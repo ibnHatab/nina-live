@@ -409,6 +409,7 @@ func TestATimerRingsAndAReminderWaitsForTheScene(t *testing.T) {
 	r := newRig(t, tasks.All)
 	homeCall(t, r.k, "home_timers", map[string]any{"intent": "SET", "minutes": 0.01, "subject": "check the printer"})
 	waitHeard(t, r.v, "Time's up: check the printer")
+	waitHeard(t, r.v, `urgent: A timer or an alarm the person set has rung: "check the printer"`) // said, whatever she is doing
 	homeCall(t, r.k, "home_timers", map[string]any{"intent": "REMIND", "occasion": "leaving", "subject": "take the keys"})
 	time.Sleep(500 * time.Millisecond)
 	if r.v.heard("Reminder: take the keys") {
@@ -416,6 +417,7 @@ func TestATimerRingsAndAReminderWaitsForTheScene(t *testing.T) {
 	}
 	homeCall(t, r.k, "home_scenes", map[string]any{"intent": "AWAY"})
 	waitHeard(t, r.v, "Reminder: take the keys")
+	waitHeard(t, r.v, `urgent: A reminder the person asked for, for when you leave, has come: "take the keys"`)
 	// the away wish lasted its beat: a reminder for leaving set now waits for the next time
 	homeCall(t, r.k, "home_timers", map[string]any{"intent": "REMIND", "occasion": "leaving", "subject": "the bins"})
 	time.Sleep(800 * time.Millisecond)

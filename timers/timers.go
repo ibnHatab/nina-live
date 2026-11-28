@@ -308,10 +308,11 @@ func (h *Host) OnEvent(name string, args []string, payload map[string]any) {
 		set = &x
 	case "remind_set":
 		h.record(Event{Kind: "armed", Slot: slotName, Subject: subject(payload), Scene: scene})
-	case "ring", "remind":
-		h.record(Event{Kind: "rang", Slot: slotName})
+	case "ring", "remind": // with what it was for (and the occasion a reminder waited for): what she says
+		x := h.slots[slotName]
+		h.record(Event{Kind: "rang", Slot: slotName, Subject: x.subject, Scene: x.scene})
 	case "ring_every":
-		h.record(Event{Kind: "rang_every", Slot: slotName})
+		h.record(Event{Kind: "rang_every", Slot: slotName, Subject: h.slots[slotName].subject})
 	case "cancel", "cancel_every":
 		h.record(Event{Kind: "cancelled", Slot: slotName})
 		cancel = true
@@ -353,6 +354,22 @@ func (h *Host) Name(handle string) (string, bool) {
 		return fmt.Sprintf("%s (%s)", s.subject, s.when()), true
 	}
 	return s.subject, true
+}
+
+// Said is what she tells the person when a timer, an alarm or a reminder rings ("": the event is
+// not a ring): the voice's NOTE, said whatever she is doing, the person having asked for it.
+func (e Event) Said() string {
+	subject := e.Subject
+	if subject == "" {
+		subject = "the timer"
+	}
+	switch {
+	case e.Kind == "rang" && e.Scene != "":
+		return fmt.Sprintf("A reminder the person asked for, for when %s, has come: %q. Tell them now, in a few words.", occasion[e.Scene], subject)
+	case e.Kind == "rang", e.Kind == "rang_every":
+		return fmt.Sprintf("A timer or an alarm the person set has rung: %q. Tell them now, in a few words.", subject)
+	}
+	return ""
 }
 
 var occasion = map[string]string{"away": "you leave", "night": "you go to bed", "home": "you are back"}
