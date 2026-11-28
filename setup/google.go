@@ -126,7 +126,7 @@ func checkClient(_ context.Context, s *Setup, value string) Result {
 		r.Detail += ", redirect " + s.redirect()
 		if !ok && len(c.Redirects) > 0 {
 			r.Detail += " not among its redirects (as downloaded; add it if Google says redirect_uri_mismatch)"
-			r.Say = "I found your OAuth client. Google will need localhost, port 8765, among its redirects: add it on the client's page."
+			r.Say = "I found your OAuth client. Google will need localhost, port 8765, among its redirects: add it on the client's page, then press Next."
 		}
 	}
 	return r

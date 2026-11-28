@@ -279,7 +279,10 @@ func (s *Setup) enter(ctx context.Context) {
 			if said == "" {
 				said = sentence(r.Detail)
 			}
-			s.say(said + " " + next)
+			if strings.Contains(said, "press Next") { // the check says what to do first (claudia's test: a redirect to add)
+				next = ""
+			}
+			s.say(strings.TrimSpace(said + " " + next))
 			return
 		}
 	}
