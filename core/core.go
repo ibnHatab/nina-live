@@ -821,6 +821,9 @@ func (k *Core) Run(ctx context.Context, beat time.Duration) {
 
 func (k *Core) reasoning(r metishome.Reasoning) {
 	k.Log.Append(k.Cfg.Now(), "reasoning", r.Kind, r.Domain, "", map[string]string{"line": r.Line, "status": r.Status, "text": r.Text}, 1)
+	if k.Cognition != nil && slices.Contains(cognition.Members, r.Domain) {
+		return // the cognition's rules are its bookkeeping (the books' citations): what it has to say is its say command
+	}
 	if k.Tasks != nil {
 		k.Tasks.Reasoning(r.Domain, r.Kind, r.Line)
 	}
@@ -1090,10 +1093,11 @@ func (k *Core) ReportTool() *tasks.Tool {
 		return nil
 	}
 	return &tasks.Tool{Name: "keep_in_mind", Domain: "commitments",
-		Description: "Things the person hands Nina to keep in mind and bring up the next time they talk (not at a time: " +
-			"for a time, the timers). KEEP: keep these words; LATER: the person put it off, still to do; AGAIN: bring it " +
-			"up again; DONE: it is done, forget it. The words as the person said them (for LATER, AGAIN and DONE, enough " +
-			"of them to tell which).",
+		Description: "Things the person asks Nina to keep in mind and bring up the next time they talk (not at a time: " +
+			"for a time, the timers). KEEP: a new thing to remember or to remind them of next time (\"remind me next time to " +
+			"call the plumber\"); LATER: something you brought up, the person puts it off but it is still to do; AGAIN: " +
+			"bring up again next time something you already brought up; DONE: it is done or no longer needed, forget it. " +
+			"The words as the person said them (for LATER, AGAIN and DONE, enough of them to tell which).",
 		Parameters: map[string]any{"type": "object", "properties": map[string]any{
 			"verb":  map[string]any{"type": "string", "enum": []any{"KEEP", "LATER", "AGAIN", "DONE"}},
 			"words": map[string]any{"type": "string", "description": "what to keep in mind, in the person's words"}},
