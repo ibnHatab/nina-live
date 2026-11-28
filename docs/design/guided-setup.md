@@ -61,7 +61,7 @@ or a phone it needs Pascal's tailnet https (later).
 The settings event's `setup`:
 
 ```
-{integrations: [{id, title, why, optional, needs, steps, status: {ok, detail, hint}}], narrate, restart,
+{integrations: [{id, title, why, optional, needs, steps, pages, status: {ok, detail, hint}}], narrate, restart,
  active: {integration, title, step, of, done, skipped, status,
           current: {id, title, text, say, url, input: "" | secret | client | signin | whatsapp, shortcut, manual},
           result: {ok, detail, hint}, clients: [file names], signin: {url, redirect}}}

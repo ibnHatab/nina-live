@@ -443,7 +443,11 @@ func (s *Setup) View() map[string]any {
 	defer s.mu.Unlock()
 	var list []map[string]any
 	for _, in := range s.List {
-		e := map[string]any{"id": in.ID, "title": in.Title, "why": in.Why, "optional": in.Optional, "steps": len(in.Steps)}
+		pages := make([]string, len(in.Steps)) // each step's page: her screen opens it with the click that goes there
+		for i, st := range in.Steps {
+			pages[i] = s.url(st.URL)
+		}
+		e := map[string]any{"id": in.ID, "title": in.Title, "why": in.Why, "optional": in.Optional, "steps": len(in.Steps), "pages": pages}
 		if len(in.Needs) > 0 {
 			e["needs"] = in.Needs
 		}
