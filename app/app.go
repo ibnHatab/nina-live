@@ -338,11 +338,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 			if stageLog != nil {
 				stageLog(kind, d)
 			}
-		}, func(level, text string) {
-			if v := k.Voice(); v != nil {
-				v.Note(level, text)
-			}
-		})
+		}, func(level, text string) { k.View.Say("photos", level, text) })
 		pick = &pt
 		reads = append(reads, pt)
 	}
