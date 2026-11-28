@@ -179,6 +179,9 @@ type Backends struct {
 	// HassURL, HassToken: the deployment's Home Assistant and its token's file, for her setup to check
 	// (acasa's hass:); "": no Home Assistant to set up
 	HassURL, HassToken string
+	// Tools: the deployment's own tools, the voice's and the tasks' (the tablet's radio, alarms and timers
+	// through its app; none at home). Until the plugin registry, where each integration brings its own.
+	Tools []tasks.Tool
 }
 
 // Named is a list, a calendar or a weather source by its id and its name.
@@ -335,6 +338,7 @@ func New(ctx context.Context, c Config, b Backends) (*App, error) {
 		pick = &pt
 		reads = append(reads, pt)
 	}
+	reads = append(reads, b.Tools...)
 	reads = append(reads, screenTool(yt, b.Albums, func(d map[string]any) {
 		if stageLog != nil {
 			stageLog("stage", d)
@@ -717,3 +721,11 @@ func uncovered(L *nlog.Log, t tasks.Tool) tasks.Tool {
 	}
 	return t
 }
+
+// NoDevice is the home's devices where there are none (the tablet): every command refused, so the whole
+// composition runs (the semantic world, the director, timers, agenda, music, her mood) and a "lights on" gets
+// an honest refusal, not a false done. With an empty home map (no rooms, no entities).
+type NoDevice struct{}
+
+// Do refuses: there is no device here.
+func (NoDevice) Do(kind, role, op string, value any) bool { return false }
