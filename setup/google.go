@@ -500,8 +500,11 @@ func (s *Setup) googleAPIs(ctx context.Context) Result {
 // signOut: the sign-in revoked at Google, its file kept as .prev.
 func (s *Setup) signOut(ctx context.Context) error {
 	err := s.store().SignOut(ctx)
+	if errors.Is(err, creds.ErrNone) { // nothing to sign out of: nothing changed
+		return errors.New("setup: not signed in to Google")
+	}
 	s.log("setup", map[string]any{"verb": "signout", "integration": "google", "ok": err == nil})
-	if err != nil && !errors.Is(err, creds.ErrNone) && !strings.HasPrefix(err.Error(), "Google's revocation") {
+	if err != nil && !strings.HasPrefix(err.Error(), "Google's revocation") {
 		return err
 	}
 	s.mu.Lock()

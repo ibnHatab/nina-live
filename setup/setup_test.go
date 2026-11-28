@@ -541,6 +541,10 @@ func TestSignOut(t *testing.T) {
 	if r := checkGoogle(context.Background(), s, ""); r.OK || r.Detail != "not signed in yet" {
 		t.Errorf("check after sign-out: %+v", r)
 	}
+	n := len(*said)
+	if ok, err := s.Action("setup_signout", ""); !ok || err == nil || !strings.Contains(err.Error(), "not signed in") || len(*said) != n {
+		t.Errorf("signing out of nothing: %v %v, said %q", ok, err, (*said)[n:])
+	}
 }
 
 // TestDesktopClientOnly: Google's personal setup makes a Desktop app client: a Web client pasted is refused,
