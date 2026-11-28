@@ -37,6 +37,21 @@ knowledge of how to work with people.
 **3. The deployment: where she works, and for whom.** The persona, the chosen plugins, their
 bindings' credentials, and the place (a home map, an office's calendars, a kitchen's inventory).
 
+## Three kinds of plugin
+
+| Kind | Has | Example | Certified by |
+|---|---|---|---|
+| **Knowledge** | domains, a world extension, a skill; no binding | Office Worker | its scenarios (its book), through the composition |
+| **Endpoints** | tools and their skill; no domain | Android | its tools' tests with fakes (level 2), and its interface checked at install |
+| **Full** | both | Home Assistant, Google Services, Communicator, Chef | both |
+
+An endpoints plugin's tools reach the agent (the voice, the tasks), not the rules: nothing in it acts
+on the world without the LLM asking. Where one of its endpoints is the device behind a certified
+domain, it is that domain's binding instead of a free tool. On the tablet, the media player is the
+music domain's binding and Android's alarms are the timers domain's, so what she sets by voice is in
+her world there too, as at home. Its tools open other apps and pages, and they do nothing that
+needs the rules' gate: no calls, no messages sent, no payments.
+
 ## The plugins
 
 | Plugin | Domains | World extension | Bindings | Status |
@@ -45,13 +60,14 @@ bindings' credentials, and the place (a home map, an office's calendars, a kitch
 | **Home Assistant** | the home's domains (nina-narratives `devices/`: lights, air, comfort, scenes, media, …) | the flat's topology and its sensors (`home.map.json`, the `home` adapter) | MCP to Home Assistant (ha-mcp) | runs today: Pascal, the Pi |
 | **Communicator** | social communication: who to answer, when to stay silent, what she keeps | chats, groups, people | WhatsApp (linked device) | the channel runs; its domain to write |
 | **Office Worker** | communication skills: working with the people who come and go (book 2) | people, their requests | none (it uses Google Services and Communicator) | from the books |
+| **Android** | none | none | intents: open an app, a page, a share; the media player and the alarms as the music and timers domains' bindings | the tablet (claudia's interim `Backends.Tools`: radio, alarms, timers) |
 | **Chef** (experimental) | cooking as resource handling (ingredients, tools, heat, time) in linear logic | inventory, utensils, recipes in progress | recipe libraries; no manipulator: she plans and guides | experimental |
 
 ## Deployments
 
 | Deployment | Plugins | Where |
 |---|---|---|
-| Nina alone | none (the persona), Google Services when given | the tablet |
+| Nina alone | none (the persona); on the tablet Android, and Google Services when given | the tablet |
 | **Nina with Home Assistant** | Home Assistant, Google Services, Communicator | Pascal, the Pi |
 | Office | Office Worker, Google Services, Communicator | the secretary |
 | Kitchen | Chef | experimental |
@@ -112,8 +128,9 @@ Missing: the plugin's manifest that names these parts, and the runtime that inst
 
 ## The way there
 
-1. **The persona alone on the tablet** (claudia: `app.NoDevice`, an empty map), and **Google
-   Services** on it (the guided setup, `creds`).
+1. **The persona alone on the tablet** (claudia: `app.NoDevice`, an empty map), with **Google
+   Services** (the guided setup, `creds`) and **Android** (`Backends.Tools` today: the plugin's first
+   form).
 2. The plugin manifest, and the registry in nina-live: Google Services, then Communicator, behind it.
 3. Home Assistant as a plugin: acasa's binding into it, the `home` adapter as its world extension,
    its domains certified as the home's goldens are today. acasa then holds the deployment's pages.
